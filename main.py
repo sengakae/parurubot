@@ -1,7 +1,10 @@
 import discord
+import json
+import random
 import os
 
 from dotenv import load_dotenv
+from discord.ext import commands
 
 load_dotenv()
 
@@ -10,7 +13,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
@@ -23,15 +26,40 @@ async def on_ready():
 
     print("ParuruBot is in " + str(server_count) + " server(s).")
 
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
+@bot.command(name="rquote", help="randomly prints a saved quote")
+async def rquote(ctx):
+    try:
+        with open("quotes.json", "r") as r:
+            data = json.load(r)
+            quotes = data["quotes"]
+    except:
+        await ctx.send("No quotes found.")
         return
     
-    user = str(message.author)
-    content = str(message.content)
-    print(user)
-    if content == "hello":
-        await message.channel.send(f"hey {user}")
+    await ctx.send(random.choice(quotes))
+
+@bot.command(name="add", help="saves the following string as a quote")
+async def add(ctx, quote):
+    def add_quote(quote, file="quotes.json"):
+        with open(file, "r+") as fw:
+            j = json.load(fw)
+            j["quotes"].append(quote)
+            with open(file, "w+") as wp:
+                wp.write(json.dumps(j))
+
+    try:
+        with open("quotes.json", "r"):
+            pass
+    except:
+        with open("quotes.json", "w+") as wp:
+            wp.write('{"quotes" : []}')
+    finally:
+        add_quote(quote)
+        await ctx.send(f"Added: {quote}")
+
+@bot.command(name="purge", help="purges the last [number] lines (max: 100)")
+async def purge(ctx, number):
+    number = int(number)
+    await ctx.channel.purge(limit=number)
 
 bot.run(DISCORD_TOKEN)
