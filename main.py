@@ -59,7 +59,7 @@ async def add(ctx, quote):
 
 @bot.command(name="purge", help="purges the last [number] lines (max: 100)")
 async def purge(ctx, number):
-    number = int(number)
-    await ctx.channel.purge(limit=number)
+    lines = int(number)
+    await ctx.channel.purge(limit=lines)
 
 bot.run(DISCORD_TOKEN)
