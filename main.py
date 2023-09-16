@@ -38,6 +38,22 @@ async def rquote(ctx):
     
     await ctx.send(random.choice(quotes))
 
+@bot.command(name="quote", help="prints the saved quote")
+async def quote(ctx, number):
+    try:
+        with open("quotes.json", "r") as r:
+            data = json.load(r)
+            quotes = data["quotes"]
+    except:
+        await ctx.send("No quotes found.")
+        return
+    
+    number = int(number)
+    if 0 < number < len(quotes):
+        await ctx.send(quotes[number - 1])
+    else:
+        await ctx.send("Invalid number.")
+
 @bot.command(name="add", help="saves the following string as a quote")
 async def add(ctx, quote):
     def add_quote(quote, file="quotes.json"):
