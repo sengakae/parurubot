@@ -10,8 +10,9 @@ from discord.ext import commands
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-WEATHER_URL = os.getenv("WEATHER_URL")
 WEATHER_TOKEN = os.getenv("WEATHER_TOKEN")
+
+weather_url = "http://api.openweathermap.org/data/2.5/weather?"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -83,7 +84,7 @@ async def purge(ctx, number):
 
 @bot.command(name="weather", help="prints weather information of city")
 async def weather(ctx, *, city: str):
-    url = f"{WEATHER_URL}appid={WEATHER_TOKEN}&q={city}"
+    url = f"{weather_url}appid={WEATHER_TOKEN}&q={city}"
     try:
         response = requests.get(url)
         data = response.json()
