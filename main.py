@@ -19,6 +19,8 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+command_list = ['rquote', 'purge', 'weather', 'add']
+
 @bot.event
 async def on_ready():
     server_count = 0
@@ -35,47 +37,11 @@ async def rquote(ctx):
     try:
         with open("quotes.json", "r") as r:
             data = json.load(r)
-            quotes = data["quotes"]
     except:
         await ctx.send("No quotes found.")
         return
     
-    await ctx.send(random.choice(quotes))
-
-@bot.command(name="quote", help="prints the saved quote")
-async def quote(ctx, number):
-    try:
-        with open("quotes.json", "r") as r:
-            data = json.load(r)
-            quotes = data["quotes"]
-    except:
-        await ctx.send("No quotes found.")
-        return
-    
-    number = int(number)
-    if 0 < number < len(quotes):
-        await ctx.send(quotes[number - 1])
-    else:
-        await ctx.send("Invalid number.")
-
-@bot.command(name="add", help="saves the following string as a quote")
-async def add(ctx, quote):
-    def add_quote(quote, file="quotes.json"):
-        with open(file, "r+") as fw:
-            j = json.load(fw)
-            j["quotes"].append(quote)
-            with open(file, "w+") as wp:
-                wp.write(json.dumps(j))
-
-    try:
-        with open("quotes.json", "r"):
-            pass
-    except:
-        with open("quotes.json", "w+") as wp:
-            wp.write('{"quotes" : []}')
-    finally:
-        add_quote(quote)
-        await ctx.send(f"Added: {quote}")
+    await ctx.send(random.choice(list(data.values())))
 
 @bot.command(name="purge", help="purges the last [number] lines (max: 100)")
 async def purge(ctx, number):
@@ -114,5 +80,43 @@ async def weather(ctx, *, city: str):
             await ctx.send("City not found.")
     except:
         ctx.send("An error occurred while fetching weather info.")
+
+@bot.command(name="add", help="saves the following string as a quote")
+async def add(ctx, keyword, *, quote):
+    def add_quote(quote, file="quotes.json"):
+        with open(file, "r+") as fw:
+            data = json.load(fw)
+            data[keyword] = quote
+            with open(file, "w+") as wp:
+                wp.write(json.dumps(data))
+
+    try:
+        with open("quotes.json", "r"):
+            pass
+    except:
+        with open("quotes.json", "w+") as wp:
+            wp.write("{}")
+    finally:
+        add_quote(quote)
+        await ctx.send(f"Added: {quote}")
+
+@bot.event
+async def on_message(ctx):
+    if ctx.author == bot.user:
+        return
+    
+    content = ctx.content.split()
+    if not content[0].startswith("!"):
+        return
+
+    keyword = content[0][1:]
+    if keyword in command_list:
+        await bot.process_commands(ctx)
+        return
+    else:
+        with open("quotes.json", "r") as fw:
+            quotes = json.load(fw)
+            if keyword in quotes:
+                await ctx.channel.send(quotes[keyword])
 
 bot.run(DISCORD_TOKEN)
