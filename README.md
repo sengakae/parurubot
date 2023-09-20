@@ -28,8 +28,8 @@ List of available commands.
 
 ### !gs [gear stat values]
 - Returns the calculate gear score value
-For atk%, def%, eff%, er%, input the number
-For cc%, use [num]cc
-For cd%, use [num]cd
-For spd, use [num]s
-For flat values: use [num]atk, [num]def, [num]hp
+  - For atk%, def%, eff%, er%, input the number
+  - For cc%, use [num]cc
+  - For cd%, use [num]cd
+  - For spd, use [num]s
+  - For flat values: use [num]atk, [num]def, [num]hp
