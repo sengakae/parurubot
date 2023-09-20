@@ -11,14 +11,14 @@ WEATHER_TOKEN=[from: https://home.openweathermap.org/api_keys]
 
 List of available commands.
 
-### !add [quote]
+### !add [keyword] [quote]
 - Adds [quote] into an auto-generated `quotes.json` file
 
 ### !rquote
 - Randomly selects a saved quote and prints it
 
-### !quote [number]
-- Prints the quote saved at [number - 1] position
+### ![keyword]
+- Prints the quote saved with [keyword]
 
 ### !purge [number]
 - Deletes the last [number] lines in the channel
