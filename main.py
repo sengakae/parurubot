@@ -3,6 +3,7 @@ import json
 import random
 import requests
 import os
+import re
 
 from dotenv import load_dotenv
 from discord.ext import commands
@@ -19,7 +20,8 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-command_list = ['rquote', 'purge', 'weather', 'add']
+# Add all commands into this list
+command_list = ['rquote', 'purge', 'weather', 'add', 'gs']
 
 @bot.event
 async def on_ready():
@@ -81,6 +83,30 @@ async def weather(ctx, *, city: str):
     except:
         ctx.send("An error occurred while fetching weather info.")
 
+@bot.command(name="gs", help="calculates e7 gear score")
+async def gs(ctx, *, values):
+    stats = values.split()
+    gear_score = 0
+    for stat in stats:
+        if isinstance(stat, str):
+            num_val = int(re.search(r'\d+', stat).group())
+            if "cc" in stat:
+                gear_score += num_val * 1.6
+            elif "cd" in stat:
+                gear_score += num_val * 1.14
+            elif "s" in stat:
+                gear_score += num_val * 2
+            elif "atk" in stat:
+                gear_score += num_val * 3.46 / 39
+            elif "def" in stat:
+                gear_score += num_val * 4.99 / 31
+            elif "hp" in stat:
+                gear_score += num_val * 3.09 / 174
+            else:
+                gear_score += int(stat)
+    
+    await ctx.send(f"Gear score: {round(gear_score, 2)}")
+
 @bot.command(name="add", help="saves the following string as a quote")
 async def add(ctx, keyword, *, quote):
     def add_quote(quote, file="quotes.json"):
@@ -117,6 +143,6 @@ async def on_message(ctx):
         with open("quotes.json", "r") as fw:
             quotes = json.load(fw)
             if keyword in quotes:
-                await ctx.channel.send(quotes[keyword])
+                await ctx.send(quotes[keyword])
 
 bot.run(DISCORD_TOKEN)
