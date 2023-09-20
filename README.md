@@ -27,7 +27,7 @@ List of available commands.
 - Returns the weather information of [city_name]
 
 ### !gs [gear stat values]
-- Returns the calculate gear score value
+- Returns the calculated gear score value
   - For atk%, def%, eff%, er%, input the number
   - For cc%, use [num]cc
   - For cd%, use [num]cd
