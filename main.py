@@ -143,6 +143,6 @@ async def on_message(ctx):
         with open("quotes.json", "r") as fw:
             quotes = json.load(fw)
             if keyword in quotes:
-                await ctx.send(quotes[keyword])
+                await ctx.channel.send(quotes[keyword])
 
 bot.run(DISCORD_TOKEN)
