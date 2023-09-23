@@ -14,6 +14,12 @@ List of available commands.
 ### !add [keyword] [quote]
 - Adds [quote] into an auto-generated `quotes.json` file
 
+### !rm [keyword]
+- Removes the quote associated with [keyword]
+
+### !showquotes
+- Prints a list of all keywords
+
 ### !rquote
 - Randomly selects a saved quote and prints it
 
