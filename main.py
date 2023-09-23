@@ -21,7 +21,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Add all commands into this list
-command_list = ['rquote', 'purge', 'weather', 'add', 'gs']
+command_list = ['rquote', 'purge', 'weather', 'add', 'rm', 'showquotes', 'gs']
 
 @bot.event
 async def on_ready():
@@ -125,6 +125,49 @@ async def add(ctx, keyword, *, quote):
     finally:
         add_quote(quote)
         await ctx.send(f"Added: {quote}")
+
+@bot.command(name="rm", help="deletes quote with keyword identifier")
+async def rm(ctx, keyword):
+    async def rm_quote(file="quotes.json"):
+        with open(file, "r+") as fw:
+            data = json.load(fw)
+            if keyword in data:
+                del data[keyword]
+                with open(file, "w+") as wp:
+                    wp.write(json.dumps(data))
+                await ctx.send(f'"{keyword}" quote deleted.')
+                return
+            else:
+                await ctx.send("Quote not found.")
+                return
+
+    try:
+        with open("quotes.json", "r"):
+            pass
+    except:
+        await ctx.send("quotes.json not found.")
+        return
+    finally:
+        await rm_quote()
+        return
+    
+@bot.command(name="showquotes", help="list all quote keywords")
+async def showquotes(ctx):
+    try:
+        with open("quotes.json", "r") as file:
+            data = json.load(file)
+
+        if not data:
+            await ctx.send("No quotes found.")
+            return
+        else:
+            keywords = list(data.keys())
+            keyword_list = "\n".join(keywords)
+            output = f"```plaintext\n{keyword_list}```"
+            await ctx.send(f"List of quote keywords:\n{output}")
+    except:
+        await ctx.send("quotes.json not found.")
+        return
 
 @bot.event
 async def on_message(ctx):
