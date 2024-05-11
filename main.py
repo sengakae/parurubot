@@ -15,9 +15,11 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 WEATHER_TOKEN = os.getenv("WEATHER_TOKEN")
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
+# AI configs
 genai.configure(api_key=GEMINI_API_KEY)
-
+model = genai.GenerativeModel('gemini-pro')
 char_limit = 2000
+history_clients = {}
 
 weather_url = "http://api.openweathermap.org/data/2.5/weather?"
 
@@ -196,14 +198,18 @@ async def on_message(ctx):
     
     # Add ai chatbot on @mention
     elif bot.user.mentioned_in(ctx):
+        if ctx.author not in history_clients:
+            history_clients[ctx.author] = []
+
         mention = f"@{bot.user.name}"
         cleaned_content = ctx.clean_content.replace(mention, "").strip()
 
         try:
-            model = genai.GenerativeModel('gemini-pro')
             print(f"Prompt: {cleaned_content}")
-            response = model.generate_content(cleaned_content)
+            chat = model.start_chat(history=history_clients[ctx.author])
+            response = chat.send_message(cleaned_content)
             print(f"Response: {response.text}")
+            history_clients[ctx.author] += chat.history
             if len(response.text) > char_limit:
                 await ctx.channel.send("Too much thinking, I'm going to bed.")
             else:
