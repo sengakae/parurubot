@@ -40,3 +40,6 @@ List of available commands.
   - For cd%, use [num]cd
   - For spd, use [num]s
   - For flat values: use [num]atk, [num]def, [num]hp
+
+### @bot [prompt]
+- Chat with an AI bot
