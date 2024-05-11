@@ -7,6 +7,7 @@ Create a `.env` file at the root folder. It should contain the following
 ```
 DISCORD_TOKEN=[from: https://discord.com/developers/applications]
 WEATHER_TOKEN=[from: https://home.openweathermap.org/api_keys]
+GEMINI_API_KEY=[from: https://aistudio.google.com/app/apikey]
 ```
 
 List of available commands.

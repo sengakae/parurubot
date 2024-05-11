@@ -4,6 +4,7 @@ import random
 import requests
 import os
 import re
+import google.generativeai as genai
 
 from dotenv import load_dotenv
 from discord.ext import commands
@@ -12,6 +13,11 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 WEATHER_TOKEN = os.getenv("WEATHER_TOKEN")
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+
+genai.configure(api_key=GEMINI_API_KEY)
+
+char_limit = 2000
 
 weather_url = "http://api.openweathermap.org/data/2.5/weather?"
 
@@ -46,7 +52,7 @@ async def rquote(ctx):
     await ctx.send(random.choice(list(data.values())))
 
 @bot.command(name="purge", help="purges the last [number] lines (max: 100)")
-async def purge(ctx, number):
+async def purge(ctx, number = 10):
     lines = int(number)
     await ctx.channel.purge(limit=lines)
 
@@ -81,7 +87,7 @@ async def weather(ctx, *, city: str):
         else:
             await ctx.send("City not found.")
     except:
-        ctx.send("An error occurred while fetching weather info.")
+        await ctx.send("An error occurred while fetching weather info.")
 
 @bot.command(name="gs", help="calculates e7 gear score")
 async def gs(ctx, *, values):
@@ -175,17 +181,34 @@ async def on_message(ctx):
         return
     
     content = ctx.content.split()
-    if not content[0].startswith("!"):
-        return
 
-    keyword = content[0][1:]
-    if keyword in command_list:
-        await bot.process_commands(ctx)
-        return
-    else:
-        with open("quotes.json", "r") as fw:
-            quotes = json.load(fw)
-            if keyword in quotes:
-                await ctx.channel.send(quotes[keyword])
+    # Respond using !commands
+    if content[0].startswith("!"):
+        keyword = content[0][1:]
+        if keyword in command_list:
+            await bot.process_commands(ctx)
+            return
+        else:
+            with open("quotes.json", "r") as fw:
+                quotes = json.load(fw)
+                if keyword in quotes:
+                    await ctx.channel.send(quotes[keyword])
+    
+    # Add ai chatbot on @mention
+    elif bot.user.mentioned_in(ctx):
+        mention = f"@{bot.user.name}"
+        cleaned_content = ctx.clean_content.replace(mention, "").strip()
+
+        try:
+            model = genai.GenerativeModel('gemini-pro')
+            print(f"Prompt: {cleaned_content}")
+            response = model.generate_content(cleaned_content)
+            print(f"Response: {response.text}")
+            if len(response.text) > char_limit:
+                await ctx.channel.send("Too much thinking, I'm going to bed.")
+            else:
+                await ctx.channel.send(response.text)
+        except Exception as e:
+            print(f"Error generating response: {e}")
 
 bot.run(DISCORD_TOKEN)
