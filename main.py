@@ -1,25 +1,47 @@
-import discord
 import json
-import random
-import requests
 import os
+import random
 import re
-import google.generativeai as genai
 
-from dotenv import load_dotenv
+import discord
+import google.generativeai as genai
+import requests
 from discord.ext import commands
+from dotenv import load_dotenv
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 WEATHER_TOKEN = os.getenv("WEATHER_TOKEN")
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# AI configs
+SYSTEM_PROMPT = """You are paruru, a friendly and helpful Discord bot. You chat like a regular person - casual, relaxed, and conversational - but you're also genuinely helpful when people need something. 
+
+Your personality:
+- Be chill and use natural, conversational language
+- Don't be overly formal or robotic
+- Use lowercase sometimes, contractions, and casual phrases like "yeah", "nah", "tbh", "ngl"
+- Keep responses concise but informative
+- Be genuinely helpful when asked questions - give good answers but in a friendly way
+- You can be a bit playful or use light humor when appropriate
+- Don't always feel the need to end with questions or be overly enthusiastic
+- Never use emojis in your responses
+
+When helping:
+- Give useful, accurate information but explain it casually
+- Break down complex topics in simple terms
+- If you're not sure about something, just say so honestly
+- Offer to help more if needed, but don't be pushy
+
+Keep responses under 1500 characters most of the time. You're like that friend who's both fun to talk to AND actually knows stuff when you need help."""
+
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-pro')
+
+model = genai.GenerativeModel("gemini-2.0-flash-exp")
+
+web_search_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+
 char_limit = 2000
-history_clients = {}
 
 weather_url = "http://api.openweathermap.org/data/2.5/weather?"
 
@@ -28,8 +50,8 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Add all commands into this list
-command_list = ['rquote', 'purge', 'weather', 'add', 'rm', 'showquotes', 'gs']
+command_list = ["rquote", "purge", "weather", "add", "rm", "showquotes", "gs", "search"]
+
 
 @bot.event
 async def on_ready():
@@ -42,6 +64,7 @@ async def on_ready():
 
     print("ParuruBot is in " + str(server_count) + " server(s).")
 
+
 @bot.command(name="rquote", help="randomly prints a saved quote")
 async def rquote(ctx):
     try:
@@ -50,13 +73,15 @@ async def rquote(ctx):
     except:
         await ctx.send("No quotes found.")
         return
-    
+
     await ctx.send(random.choice(list(data.values())))
 
+
 @bot.command(name="purge", help="purges the last [number] lines (max: 100)")
-async def purge(ctx, number = 10):
+async def purge(ctx, number=10):
     lines = int(number)
     await ctx.channel.purge(limit=lines)
+
 
 @bot.command(name="weather", help="prints weather information of city")
 async def weather(ctx, *, city: str):
@@ -77,12 +102,22 @@ async def weather(ctx, *, city: str):
                 description_main = description["main"]
                 description_info = description["description"]
 
-                embed = discord.Embed(title=f"Weather in {city.capitalize()}, {country}",
-                                    color=ctx.guild.me.top_role.color,
-                                    timestamp=ctx.message.created_at,)
-                embed.add_field(name="Description", value=f"**{description_main} - {description_info}**", inline=False)
-                embed.add_field(name="Temperature", value=f"**{current_temp}°C**", inline=False)
-                embed.add_field(name="Humidity", value=f"**{current_humidity}%**", inline=False)
+                embed = discord.Embed(
+                    title=f"Weather in {city.capitalize()}, {country}",
+                    color=ctx.guild.me.top_role.color,
+                    timestamp=ctx.message.created_at,
+                )
+                embed.add_field(
+                    name="Description",
+                    value=f"**{description_main} - {description_info}**",
+                    inline=False,
+                )
+                embed.add_field(
+                    name="Temperature", value=f"**{current_temp}°C**", inline=False
+                )
+                embed.add_field(
+                    name="Humidity", value=f"**{current_humidity}%**", inline=False
+                )
                 embed.set_footer(text=f"Requested by {ctx.author.display_name}")
 
                 await ctx.send(embed=embed)
@@ -91,13 +126,14 @@ async def weather(ctx, *, city: str):
     except:
         await ctx.send("An error occurred while fetching weather info.")
 
+
 @bot.command(name="gs", help="calculates e7 gear score")
 async def gs(ctx, *, values):
     stats = values.split()
     gear_score = 0
     for stat in stats:
         if isinstance(stat, str):
-            num_val = int(re.search(r'\d+', stat).group())
+            num_val = int(re.search(r"\d+", stat).group())
             if "cc" in stat:
                 gear_score += num_val * 1.6
             elif "cd" in stat:
@@ -112,8 +148,26 @@ async def gs(ctx, *, values):
                 gear_score += num_val * 3.09 / 174
             else:
                 gear_score += int(stat)
-    
+
     await ctx.send(f"Gear score: {round(gear_score, 2)}")
+
+
+@bot.command(name="search", help="search for current information")
+async def search(ctx, *, query: str):
+    try:
+        async with ctx.channel.typing():
+            search_prompt = f"Please provide current and up-to-date information about: {query}. Use your knowledge to give the most recent and accurate information available."
+
+            response = web_search_model.generate_content(search_prompt)
+
+            if len(response.text) > char_limit:
+                await ctx.channel.send("whoa that's way too much text, my brain hurts!")
+            else:
+                await ctx.channel.send(response.text)
+    except Exception as e:
+        print(f"Error in search: {e}")
+        await ctx.send("oops something went wrong with the search, gimme a sec...")
+
 
 @bot.command(name="add", help="saves the following string as a quote")
 async def add(ctx, keyword, *, quote):
@@ -133,6 +187,7 @@ async def add(ctx, keyword, *, quote):
     finally:
         add_quote(quote)
         await ctx.send(f"Added: {quote}")
+
 
 @bot.command(name="rm", help="deletes quote with keyword identifier")
 async def rm(ctx, keyword):
@@ -158,7 +213,8 @@ async def rm(ctx, keyword):
     finally:
         await rm_quote()
         return
-    
+
+
 @bot.command(name="showquotes", help="list all quote keywords")
 async def showquotes(ctx):
     try:
@@ -177,44 +233,97 @@ async def showquotes(ctx):
         await ctx.send("quotes.json not found.")
         return
 
+
 @bot.event
 async def on_message(ctx):
     if ctx.author == bot.user:
         return
-    
+
     content = ctx.content.split()
 
-    # Respond using !commands
-    if content[0].startswith("!"):
-        keyword = content[0][1:]
-        if keyword in command_list:
-            await bot.process_commands(ctx)
-            return
-        else:
-            with open("quotes.json", "r") as fw:
-                quotes = json.load(fw)
-                if keyword in quotes:
-                    await ctx.channel.send(quotes[keyword])
-    
-    # Add ai chatbot on @mention
-    elif bot.user.mentioned_in(ctx):
-        if ctx.author not in history_clients:
-            history_clients[ctx.author] = []
-
-        mention = f"@{bot.user.name}"
-        cleaned_content = ctx.clean_content.replace(mention, "").strip()
+    if ctx.content.lower().startswith("paruru, "):
+        cleaned_content = ctx.content[8:].strip()
 
         try:
             print(f"Prompt: {cleaned_content}")
-            chat = model.start_chat(history=history_clients[ctx.author])
-            response = chat.send_message(cleaned_content)
+
+            # Determine if web search is needed based on message content
+            needs_web_search = any(
+                keyword in cleaned_content.lower()
+                for keyword in [
+                    "latest",
+                    "current",
+                    "today",
+                    "now",
+                    "recent",
+                    "news",
+                    "weather",
+                    "price",
+                    "stock",
+                    "crypto",
+                    "live",
+                    "breaking",
+                    "update",
+                    "happening",
+                    "trending",
+                ]
+            )
+
+            # Check for time-sensitive questions
+            time_indicators = [
+                "what's happening",
+                "what's going on",
+                "current events",
+                "right now",
+                "this week",
+                "this month",
+                "latest update",
+            ]
+            if any(
+                indicator in cleaned_content.lower() for indicator in time_indicators
+            ):
+                needs_web_search = True
+
+            if needs_web_search:
+                print("Using web search model for current information")
+                search_prompt = f"Please provide current and up-to-date information about: {cleaned_content}. Use your knowledge to give the most recent and accurate information available."
+                response = web_search_model.generate_content(search_prompt)
+            else:
+                print("Using regular model for conversation")
+                conversation = [
+                    {"role": "user", "parts": [SYSTEM_PROMPT]},
+                    {
+                        "role": "model",
+                        "parts": ["got it! i'll be casual and friendly in our chats"],
+                    },
+                    {"role": "user", "parts": [cleaned_content]},
+                ]
+                response = model.generate_content(conversation)
+
             print(f"Response: {response.text}")
-            history_clients[ctx.author] += chat.history
+
             if len(response.text) > char_limit:
-                await ctx.channel.send("Too much thinking, I'm going to bed.")
+                await ctx.channel.send("whoa that's way too much text, my brain hurts!")
             else:
                 await ctx.channel.send(response.text)
         except Exception as e:
             print(f"Error generating response: {e}")
+            await ctx.channel.send("oops something broke, gimme a sec...")
+        return
+
+    if content[0].startswith("!"):
+        keyword = content[0][1:]
+        if keyword in command_list:
+            await bot.process_commands(ctx)
+        else:
+            try:
+                with open("quotes.json", "r") as fw:
+                    quotes = json.load(fw)
+                    if keyword in quotes:
+                        await ctx.channel.send(quotes[keyword])
+            except:
+                pass
+        return
+
 
 bot.run(DISCORD_TOKEN)
