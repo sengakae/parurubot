@@ -81,6 +81,13 @@ async def on_ready():
 
     print("ParuruBot is in " + str(server_count) + " server(s).")
 
+    print(f"Logged in as {bot.user}")
+    try:
+        await init_db()
+        print("DB connected successfully")
+    except Exception as e:
+        print(f"Failed to connect to DB: {e}")
+
 
 @bot.command(name="purge", help="purges the last [number] lines (max: 100)")
 async def purge(ctx, number=10):
@@ -237,12 +244,6 @@ async def summary(ctx):
     except Exception as e:
         print(f"Error generating summary: {e}")
         await ctx.send("oops, something went wrong while generating the summary")
-
-
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user}")
-    await init_db()
 
 
 @bot.command(name="add", help="saves the following string as a quote")
