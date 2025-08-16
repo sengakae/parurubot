@@ -396,13 +396,4 @@ async def on_message(message):
             await message.channel.send("Oops, something broke, gimme a sec...")
         return
 
-
-bot.run(DISCORD_TOKEN)
-                await message.channel.send(response.text)
-        except Exception as e:
-            print(f"Error generating response: {e}")
-            await message.channel.send("Oops, something broke, gimme a sec...")
-        return
-
-
 bot.run(DISCORD_TOKEN)
