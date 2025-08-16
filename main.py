@@ -7,7 +7,15 @@ import google.generativeai as genai
 import requests
 from discord.ext import commands
 from dotenv import load_dotenv
-from db import init_db, add_quote, remove_quote, get_all_keys, get_quote_by_key, get_random_quote
+
+from db import (
+    add_quote,
+    get_all_keys,
+    get_quote_by_key,
+    get_random_quote,
+    init_db,
+    remove_quote,
+)
 
 # Uses local config.py
 # from config import (
@@ -73,13 +81,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"Logged in as {bot.user}")
 
-    # try:
-    #     await init_db()
-    #     print("DB connected successfully and pool initialized")
-    # except Exception as e:
-    #     print(f"Failed to connect to DB: {e}")
-    #     import sys
-    #     sys.exit(1)
+    try:
+        await init_db()
+        print("DB connected successfully and pool initialized")
+    except Exception as e:
+        print(f"Failed to connect to DB: {e}")
+        import sys
+        sys.exit(1)
 
     server_count = len(bot.guilds)
     for server in bot.guilds:
@@ -382,6 +390,14 @@ async def on_message(message):
             if len(response.text) > CHAR_LIMIT:
                 await message.channel.send("whoa that's way too much text, my brain hurts!")
             else:
+                await message.channel.send(response.text)
+        except Exception as e:
+            print(f"Error generating response: {e}")
+            await message.channel.send("Oops, something broke, gimme a sec...")
+        return
+
+
+bot.run(DISCORD_TOKEN)
                 await message.channel.send(response.text)
         except Exception as e:
             print(f"Error generating response: {e}")
