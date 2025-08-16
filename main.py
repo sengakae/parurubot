@@ -1,6 +1,5 @@
 import json
 import os
-import random
 import re
 
 import discord
@@ -81,18 +80,6 @@ async def on_ready():
         server_count = server_count + 1
 
     print("ParuruBot is in " + str(server_count) + " server(s).")
-
-
-@bot.command(name="rquote", help="randomly prints a saved quote")
-async def rquote(ctx):
-    try:
-        with open("quotes.json", "r") as r:
-            data = json.load(r)
-    except:
-        await ctx.send("No quotes found.")
-        return
-
-    await ctx.send(random.choice(list(data.values())))
 
 
 @bot.command(name="purge", help="purges the last [number] lines (max: 100)")
@@ -282,6 +269,15 @@ async def showquotes(ctx):
         await ctx.send(f"List of quote keywords:\n{output}")
 
 
+@bot.command(name="rquote", help="randomly prints a saved quote")
+async def rquote(ctx):
+    quote = await get_random_quote()
+    if quote:
+        await ctx.send(quote)
+    else:
+        await ctx.send("No quotes found.")
+
+
 @bot.event
 async def on_message(ctx):
     if ctx.author == bot.user:
@@ -386,13 +382,9 @@ async def on_message(ctx):
         if keyword in COMMAND_LIST:
             await bot.process_commands(ctx)
         else:
-            try:
-                with open("quotes.json", "r") as fw:
-                    quotes = json.load(fw)
-                    if keyword in quotes:
-                        await ctx.channel.send(quotes[keyword])
-            except:
-                pass
+            quote = await get_quote_by_key(keyword)
+            if quote:
+                await ctx.channel.send(quote)
         return
 
 
