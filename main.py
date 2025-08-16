@@ -10,21 +10,21 @@ from dotenv import load_dotenv
 from db import init_db, add_quote, remove_quote, get_all_keys, get_quote_by_key, get_random_quote
 
 # Uses local config.py
-# from config import (
-#     CHAR_LIMIT,
-#     COMMAND_LIST,
-#     MAX_HISTORY,
-#     SYSTEM_PROMPT,
-#     TIME_INDICATORS,
-#     WEB_SEARCH_KEYWORDS,
-# )
+from config import (
+    CHAR_LIMIT,
+    COMMAND_LIST,
+    MAX_HISTORY,
+    SYSTEM_PROMPT,
+    TIME_INDICATORS,
+    WEB_SEARCH_KEYWORDS,
+)
 
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
-CHAR_LIMIT = int(os.getenv("CHAR_LIMIT", 2000))
-MAX_HISTORY = int(os.getenv("MAX_HISTORY", 20))
-WEB_SEARCH_KEYWORDS = json.loads(os.getenv("WEB_SEARCH_KEYWORDS", '[]'))
-TIME_INDICATORS = json.loads(os.getenv("TIME_INDICATORS", '[]'))
-COMMAND_LIST = json.loads(os.getenv("COMMAND_LIST", '[]'))
+# SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+# CHAR_LIMIT = int(os.getenv("CHAR_LIMIT", 2000))
+# MAX_HISTORY = int(os.getenv("MAX_HISTORY", 20))
+# WEB_SEARCH_KEYWORDS = json.loads(os.getenv("WEB_SEARCH_KEYWORDS", '[]'))
+# TIME_INDICATORS = json.loads(os.getenv("TIME_INDICATORS", '[]'))
+# COMMAND_LIST = json.loads(os.getenv("COMMAND_LIST", '[]'))
 
 load_dotenv()
 
@@ -37,7 +37,6 @@ genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash")
 
 channel_history = {}
-
 
 def add_message_to_history(
     channel_id: int, author_name: str, content: str, is_bot: bool = False
@@ -74,13 +73,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"Logged in as {bot.user}")
 
-    try:
-        await init_db()
-        print("DB connected successfully and pool initialized")
-    except Exception as e:
-        print(f"Failed to connect to DB: {e}")
-        import sys
-        sys.exit(1)
+    # try:
+    #     await init_db()
+    #     print("DB connected successfully and pool initialized")
+    # except Exception as e:
+    #     print(f"Failed to connect to DB: {e}")
+    #     import sys
+    #     sys.exit(1)
 
     server_count = len(bot.guilds)
     for server in bot.guilds:
@@ -319,36 +318,75 @@ async def on_message(message):
             channel_id = message.channel.id
             history_context = ""
             if channel_id in channel_history and channel_history[channel_id]:
-                history_context = "\n\nRecent conversation context (last 20 messages):\n"
+                history_context = (
+                    "\n\nRecent conversation context (last 20 messages):\n"
+                )
                 for msg in channel_history[channel_id]:
                     history_context += f"{msg['author']}: {msg['content']}\n"
                 history_context += f"\nCurrent message: {cleaned_content}"
+                print(f"Using {len(channel_history[channel_id])} messages of context")
 
             needs_web_search = any(keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS) or \
                                any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS)
 
             if needs_web_search:
-                search_prompt = f"{SYSTEM_PROMPT}\n\nNow, please provide current and up-to-date information about: {cleaned_content}. Keep your response concise and under {CHAR_LIMIT} characters."
+                print("Using web search model for current information")
+                search_prompt = f"{SYSTEM_PROMPT}\n\nNow, please provide current and up-to-date information about: {cleaned_content}. Use your knowledge to give the most recent and accurate information available. Keep your response concise and under {CHAR_LIMIT} characters while maintaining your casual, friendly personality."
                 if history_context:
-                    search_prompt += f"\n\nContext:\n{history_context}"
+                    search_prompt += (
+                        f"\n\nContext from recent conversation:\n{history_context}"
+                    )
                 response = model.generate_content(search_prompt)
+
+                if len(response.text) > CHAR_LIMIT:
+                    print(
+                        f"Response too long ({len(response.text)} chars), truncating to {CHAR_LIMIT}"
+                    )
+                    truncated = response.text[: CHAR_LIMIT - 3]
+                    last_period = truncated.rfind(".")
+                    last_exclamation = truncated.rfind("!")
+                    last_question = truncated.rfind("?")
+
+                    break_point = max(last_period, last_exclamation, last_question)
+                    if break_point > CHAR_LIMIT * 0.8:
+                        response.text = truncated[: break_point + 1]
+                    else:
+                        response.text = truncated + "..."
             else:
-                full_prompt = f"{SYSTEM_PROMPT}\n\n"
+                print("Using regular model for conversation")
+                conversation = [
+                    {"role": "user", "parts": [SYSTEM_PROMPT]},
+                    {
+                        "role": "model",
+                        "parts": ["got it! i'll be casual and friendly in our chats"],
+                    },
+                ]
+
                 if history_context:
-                    full_prompt += f"{history_context}\n\n"
-                full_prompt += f"User: {cleaned_content}"
-                
-                response = model.generate_content(full_prompt)
+                    conversation.append(
+                        {
+                            "role": "user",
+                            "parts": [
+                                f"Here's the recent conversation context:\n{history_context}"
+                            ],
+                        }
+                    )
+
+                conversation.append({"role": "user", "parts": [cleaned_content]})
+                response = model.generate_content(conversation)
+
+            print(f"Response: {response.text}")
 
             add_message_to_history(message.channel.id, "Bot", response.text, is_bot=True)
-            await message.channel.send(response.text if len(response.text) <= CHAR_LIMIT else response.text[:CHAR_LIMIT] + "...")
+
+            if len(response.text) > CHAR_LIMIT:
+                await message.channel.send("whoa that's way too much text, my brain hurts!")
+            else:
+                await message.channel.send(response.text)
         except Exception as e:
             print(f"Error generating response: {e}")
             await message.channel.send("Oops, something broke, gimme a sec...")
         return
-
-    
-    await bot.process_commands(message)
 
 
 bot.run(DISCORD_TOKEN)
