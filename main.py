@@ -333,14 +333,12 @@ async def on_message(message):
                     search_prompt += f"\n\nContext:\n{history_context}"
                 response = model.generate_content(search_prompt)
             else:
-                conversation = [
-                    {"role": "user", "parts": [SYSTEM_PROMPT]},
-                    {"role": "model", "parts": ["got it! i'll be casual and friendly in our chats"]},
-                ]
+                full_prompt = f"{SYSTEM_PROMPT}\n\n"
                 if history_context:
-                    conversation.append({"role": "user", "parts": [f"Context:\n{history_context}"]})
-                conversation.append({"role": "user", "parts": [cleaned_content]})
-                response = model.generate_content(conversation)
+                    full_prompt += f"{history_context}\n\n"
+                full_prompt += f"User: {cleaned_content}"
+                
+                response = model.generate_content(full_prompt)
 
             add_message_to_history(message.channel.id, "Bot", response.text, is_bot=True)
             await message.channel.send(response.text if len(response.text) <= CHAR_LIMIT else response.text[:CHAR_LIMIT] + "...")
