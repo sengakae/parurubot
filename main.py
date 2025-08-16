@@ -27,6 +27,7 @@ from db import (
 #     WEB_SEARCH_KEYWORDS,
 # )
 
+
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 CHAR_LIMIT = int(os.getenv("CHAR_LIMIT", 2000))
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", 20))
@@ -396,4 +397,5 @@ async def on_message(message):
             await message.channel.send("Oops, something broke, gimme a sec...")
         return
 
+bot.run(DISCORD_TOKEN)
 bot.run(DISCORD_TOKEN)
