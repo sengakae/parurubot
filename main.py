@@ -8,6 +8,7 @@ import google.generativeai as genai
 import requests
 from discord.ext import commands
 from dotenv import load_dotenv
+from db import init_db, add_quote, remove_quote, get_all_keys, get_quote_by_key, get_random_quote
 
 from config import (
     CHAR_LIMIT,
@@ -243,69 +244,34 @@ async def summary(ctx):
         await ctx.send("oops, something went wrong while generating the summary")
 
 
-@bot.command(name="add", help="saves the following string as a quote")
-async def add(ctx, keyword, *, quote):
-    def add_quote(quote, file="quotes.json"):
-        with open(file, "r+") as fw:
-            data = json.load(fw)
-            data[keyword] = quote
-            with open(file, "w+") as wp:
-                wp.write(json.dumps(data))
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+    await init_db()
 
-    try:
-        with open("quotes.json", "r"):
-            pass
-    except:
-        with open("quotes.json", "w+") as wp:
-            wp.write("{}")
-    finally:
-        add_quote(quote)
-        await ctx.send(f"Added: {quote}")
+
+@bot.command(name="add", help="saves the following string as a quote")
+async def add(ctx, keyword: str, *, quote: str):
+    await add_quote(keyword, quote)
+    await ctx.send(f"Quote '{keyword}' added")
 
 
 @bot.command(name="rm", help="deletes quote with keyword identifier")
 async def rm(ctx, keyword):
-    async def rm_quote(file="quotes.json"):
-        with open(file, "r+") as fw:
-            data = json.load(fw)
-            if keyword in data:
-                del data[keyword]
-                with open(file, "w+") as wp:
-                    wp.write(json.dumps(data))
-                await ctx.send(f'"{keyword}" quote deleted.')
-                return
-            else:
-                await ctx.send("Quote not found.")
-                return
-
-    try:
-        with open("quotes.json", "r"):
-            pass
-    except:
-        await ctx.send("quotes.json not found.")
-        return
-    finally:
-        await rm_quote()
-        return
+    removed = await remove_quote(keyword)
+    if removed:
+        await ctx.send(f"Quote '{keyword}' removed")
+    else:
+        await ctx.send(f"Quote '{keyword}' not found")
 
 
 @bot.command(name="showquotes", help="list all quote keywords")
 async def showquotes(ctx):
-    try:
-        with open("quotes.json", "r") as file:
-            data = json.load(file)
-
-        if not data:
-            await ctx.send("No quotes found.")
-            return
-        else:
-            keywords = list(data.keys())
-            keyword_list = "\n".join(keywords)
-            output = f"```plaintext\n{keyword_list}```"
-            await ctx.send(f"List of quote keywords:\n{output}")
-    except:
-        await ctx.send("quotes.json not found.")
-        return
+    keywords = await get_all_keys()
+    if len(keywords) > 0:
+        keyword_list = "\n".join(keywords)
+        output = f"```plaintext\n{keyword_list}```"
+        await ctx.send(f"List of quote keywords:\n{output}")
 
 
 @bot.event
