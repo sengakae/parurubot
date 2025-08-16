@@ -10,14 +10,22 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from db import init_db, add_quote, remove_quote, get_all_keys, get_quote_by_key, get_random_quote
 
-from config import (
-    CHAR_LIMIT,
-    COMMAND_LIST,
-    MAX_HISTORY,
-    SYSTEM_PROMPT,
-    TIME_INDICATORS,
-    WEB_SEARCH_KEYWORDS,
-)
+# Uses local config.py
+# from config import (
+#     CHAR_LIMIT,
+#     COMMAND_LIST,
+#     MAX_HISTORY,
+#     SYSTEM_PROMPT,
+#     TIME_INDICATORS,
+#     WEB_SEARCH_KEYWORDS,
+# )
+
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+CHAR_LIMIT = int(os.getenv("CHAR_LIMIT", 2000))
+MAX_HISTORY = int(os.getenv("MAX_HISTORY", 20))
+WEB_SEARCH_KEYWORDS = json.loads(os.getenv("WEB_SEARCH_KEYWORDS", '[]'))
+TIME_INDICATORS = json.loads(os.getenv("TIME_INDICATORS", '[]'))
+COMMAND_LIST = json.loads(os.getenv("COMMAND_LIST", '[]'))
 
 load_dotenv()
 
