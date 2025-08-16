@@ -297,6 +297,22 @@ async def on_message(message):
     if not message.content.startswith("!"):
         add_message_to_history(message.channel.id, message.author.display_name, message.content)
 
+    content = message.content.split()
+    
+    if not content:
+        return
+    
+    if content[0].startswith("!"):
+        keyword = content[0][1:]
+        if keyword in COMMAND_LIST:
+            await bot.process_commands(message)
+            return
+        else:
+            quote = await get_quote_by_key(keyword)
+            if quote:
+                await message.channel.send(quote)
+            return
+
     if message.content.lower().startswith("paruru, "):
         cleaned_content = message.content[8:].strip()
         try:
@@ -333,16 +349,8 @@ async def on_message(message):
             await message.channel.send("Oops, something broke, gimme a sec...")
         return
 
+    
     await bot.process_commands(message)
-
-    content = message.content.split()
-    if content and content[0].startswith("!"):
-        keyword = content[0][1:]
-        if keyword not in COMMAND_LIST:
-            quote = await get_quote_by_key(keyword)
-            if quote:
-                await message.channel.send(quote)
-
 
 
 bot.run(DISCORD_TOKEN)
