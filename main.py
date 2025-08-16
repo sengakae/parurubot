@@ -1,12 +1,14 @@
 import json
 import os
 import re
+from threading import Thread
 
 import discord
 import google.generativeai as genai
 import requests
 from discord.ext import commands
 from dotenv import load_dotenv
+from flask import Flask
 
 from db import (
     add_quote,
@@ -71,6 +73,18 @@ def add_message_to_history(
 
 
 weather_url = "http://api.openweathermap.org/data/2.5/weather?"
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Discord Bot is Online!"
+
+def run_flask():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
+
+Thread(target=run_flask, daemon=True).start()
 
 intents = discord.Intents.default()
 intents.message_content = True
