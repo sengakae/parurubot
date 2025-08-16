@@ -72,21 +72,21 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    server_count = 0
+    print(f"Logged in as {bot.user}")
 
+    try:
+        await init_db()
+        print("DB connected successfully and pool initialized")
+    except Exception as e:
+        print(f"Failed to connect to DB: {e}")
+        import sys
+        sys.exit(1)
+
+    server_count = len(bot.guilds)
     for server in bot.guilds:
         print(f"- {server.id} (name: {server.name})")
 
-        server_count = server_count + 1
-
-    print("ParuruBot is in " + str(server_count) + " server(s).")
-
-    print(f"Logged in as {bot.user}")
-    try:
-        await init_db()
-        print("DB connected successfully")
-    except Exception as e:
-        print(f"Failed to connect to DB: {e}")
+    print(f"ParuruBot is in {server_count} server(s).")
 
 
 @bot.command(name="purge", help="purges the last [number] lines (max: 100)")
@@ -246,147 +246,103 @@ async def summary(ctx):
         await ctx.send("oops, something went wrong while generating the summary")
 
 
-@bot.command(name="add", help="saves the following string as a quote")
+@bot.command(name="add", help="Save a quote with a keyword")
 async def add(ctx, keyword: str, *, quote: str):
     await add_quote(keyword, quote)
-    await ctx.send(f"Quote '{keyword}' added")
+    await ctx.send(f"Quote '{keyword}' added successfully!")
 
 
-@bot.command(name="rm", help="deletes quote with keyword identifier")
-async def rm(ctx, keyword):
+@bot.command(name="rm", help="Remove a quote by keyword")
+async def rm(ctx, keyword: str):
     removed = await remove_quote(keyword)
     if removed:
-        await ctx.send(f"Quote '{keyword}' removed")
+        await ctx.send(f"Quote '{keyword}' removed successfully!")
     else:
-        await ctx.send(f"Quote '{keyword}' not found")
+        await ctx.send(f"No quote found for keyword '{keyword}'.")
 
 
-@bot.command(name="showquotes", help="list all quote keywords")
+@bot.command(name="showquotes", help="List all quote keywords")
 async def showquotes(ctx):
     keywords = await get_all_keys()
-    if len(keywords) > 0:
-        keyword_list = "\n".join(keywords)
-        output = f"```plaintext\n{keyword_list}```"
-        await ctx.send(f"List of quote keywords:\n{output}")
-
-
-@bot.command(name="rquote", help="randomly prints a saved quote")
-async def rquote(ctx):
-    quote = await get_random_quote()
-    if quote:
-        await ctx.send(quote)
+    if keywords:
+        output = "```plaintext\n" + "\n".join(keywords) + "\n```"
+        await ctx.send(f"All quote keywords:\n{output}")
     else:
-        await ctx.send("No quotes found.")
+        await ctx.send("No quotes found in the database.")
+        
+
+@bot.command(name="rquote", help="Print a random saved quote")
+async def rquote(ctx):
+    quote_row = await get_random_quote()
+    if quote_row:
+        await ctx.send(f"**{quote_row['key']}**: {quote_row['value']}")
+    else:
+        await ctx.send("No quotes found in the database.")
+
+
+@bot.command(name="quote", help="Show a quote by its keyword")
+async def quote(ctx, keyword: str):
+    value = await get_quote_by_key(keyword)
+    if value:
+        await ctx.send(f"**{keyword}**: {value}")
+    else:
+        await ctx.send(f"No quote found for keyword '{keyword}'.")
 
 
 @bot.event
-async def on_message(ctx):
-    if ctx.author == bot.user:
+async def on_message(message):
+    if message.author == bot.user:
         return
 
-    # Add all user messages to history (except bot commands)
-    if not ctx.content.startswith("!"):
-        add_message_to_history(ctx.channel.id, ctx.author.display_name, ctx.content)
+    if not message.content.startswith("!"):
+        add_message_to_history(message.channel.id, message.author.display_name, message.content)
 
-    content = ctx.content.split()
-
-    if not content:
-        return
-
-    if ctx.content.lower().startswith("paruru, "):
-        cleaned_content = ctx.content[8:].strip()
-
+    if message.content.lower().startswith("paruru, "):
+        cleaned_content = message.content[8:].strip()
         try:
-            print(f"Prompt: {cleaned_content}")
-
-            channel_id = ctx.channel.id
+            channel_id = message.channel.id
             history_context = ""
             if channel_id in channel_history and channel_history[channel_id]:
-                history_context = (
-                    "\n\nRecent conversation context (last 20 messages):\n"
-                )
+                history_context = "\n\nRecent conversation context (last 20 messages):\n"
                 for msg in channel_history[channel_id]:
                     history_context += f"{msg['author']}: {msg['content']}\n"
                 history_context += f"\nCurrent message: {cleaned_content}"
-                print(f"Using {len(channel_history[channel_id])} messages of context")
 
-            needs_web_search = any(
-                keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
-            )
-
-            if any(
-                indicator in cleaned_content.lower() for indicator in TIME_INDICATORS
-            ):
-                needs_web_search = True
+            needs_web_search = any(keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS) or \
+                               any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS)
 
             if needs_web_search:
-                print("Using web search model for current information")
-                search_prompt = f"{SYSTEM_PROMPT}\n\nNow, please provide current and up-to-date information about: {cleaned_content}. Use your knowledge to give the most recent and accurate information available. Keep your response concise and under {CHAR_LIMIT} characters while maintaining your casual, friendly personality."
+                search_prompt = f"{SYSTEM_PROMPT}\n\nNow, please provide current and up-to-date information about: {cleaned_content}. Keep your response concise and under {CHAR_LIMIT} characters."
                 if history_context:
-                    search_prompt += (
-                        f"\n\nContext from recent conversation:\n{history_context}"
-                    )
+                    search_prompt += f"\n\nContext:\n{history_context}"
                 response = model.generate_content(search_prompt)
-
-                if len(response.text) > CHAR_LIMIT:
-                    print(
-                        f"Response too long ({len(response.text)} chars), truncating to {CHAR_LIMIT}"
-                    )
-                    truncated = response.text[: CHAR_LIMIT - 3]
-                    last_period = truncated.rfind(".")
-                    last_exclamation = truncated.rfind("!")
-                    last_question = truncated.rfind("?")
-
-                    break_point = max(last_period, last_exclamation, last_question)
-                    if break_point > CHAR_LIMIT * 0.8:
-                        response.text = truncated[: break_point + 1]
-                    else:
-                        response.text = truncated + "..."
             else:
-                print("Using regular model for conversation")
                 conversation = [
                     {"role": "user", "parts": [SYSTEM_PROMPT]},
-                    {
-                        "role": "model",
-                        "parts": ["got it! i'll be casual and friendly in our chats"],
-                    },
+                    {"role": "model", "parts": ["got it! i'll be casual and friendly in our chats"]},
                 ]
-
                 if history_context:
-                    conversation.append(
-                        {
-                            "role": "user",
-                            "parts": [
-                                f"Here's the recent conversation context:\n{history_context}"
-                            ],
-                        }
-                    )
-
+                    conversation.append({"role": "user", "parts": [f"Context:\n{history_context}"]})
                 conversation.append({"role": "user", "parts": [cleaned_content]})
                 response = model.generate_content(conversation)
 
-            print(f"Response: {response.text}")
-
-            add_message_to_history(ctx.channel.id, "Bot", response.text, is_bot=True)
-
-            if len(response.text) > CHAR_LIMIT:
-                await ctx.channel.send("whoa that's way too much text, my brain hurts!")
-            else:
-                await ctx.channel.send(response.text)
+            add_message_to_history(message.channel.id, "Bot", response.text, is_bot=True)
+            await message.channel.send(response.text if len(response.text) <= CHAR_LIMIT else response.text[:CHAR_LIMIT] + "...")
         except Exception as e:
             print(f"Error generating response: {e}")
-            await ctx.channel.send("oops something broke, gimme a sec...")
+            await message.channel.send("Oops, something broke, gimme a sec...")
         return
 
-    if content[0].startswith("!"):
+    await bot.process_commands(message)
+
+    content = message.content.split()
+    if content and content[0].startswith("!"):
         keyword = content[0][1:]
-        if keyword in COMMAND_LIST:
-            await bot.process_commands(ctx)
-        else:
+        if keyword not in COMMAND_LIST:
             quote = await get_quote_by_key(keyword)
             if quote:
-                await ctx.channel.send(quote)
-        return
+                await message.channel.send(quote)
+
 
 
 bot.run(DISCORD_TOKEN)
