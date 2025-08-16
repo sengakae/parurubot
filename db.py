@@ -37,17 +37,18 @@ async def remove_quote(key):
 
 async def get_all_keys():
     conn = await asyncpg.connect(DATABASE_URL)
-    rows = await conn.execute("SELECT key FROM quotes")
+    rows = await conn.fetch("SELECT key FROM quotes") 
     await conn.close()
     return [row["key"] for row in rows]
 
-async def get_random_quote():
+
+async def get_random_quote() -> dict | None:
     conn = await asyncpg.connect(DATABASE_URL)
     rows = await conn.fetch("SELECT key, value FROM quotes")
     await conn.close()
     if not rows:
         return None
-    return random.choice(rows)
+    return dict(rows[random.randint(0, len(rows)-1)])
 
 
 async def get_quote_by_key(key):
