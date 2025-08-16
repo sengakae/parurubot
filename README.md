@@ -1,6 +1,11 @@
 # parurubot
 
-Discord bot. Use "!" prefix to issue commands.
+Discord bot. Use "!" prefix to issue commands or "paruru, " to chat with the AI.
+
+## Features
+- **AI Chat**: Use "paruru, " followed by your message to chat with an AI assistant
+- **Message History**: The bot remembers the last 20 messages in each channel for context-aware responses
+- **Commands**: Various utility commands for quotes, weather, gear scoring, and more
 
 ## Setup
 Create a `.env` file at the root folder. It should contain the following
@@ -40,3 +45,13 @@ List of available commands.
   - For cd%, use [num]cd
   - For spd, use [num]s
   - For flat values: use [num]atk, [num]def, [num]hp
+
+### !history
+- Shows recent conversation history (last 10 messages)
+
+### !fullhistory
+- Shows full conversation history (up to 20 messages)
+
+### !summary
+- Generates an AI-powered summary of the last 500 messages in the channel
+- Analyzes conversation themes, topics, and ongoing discussions
