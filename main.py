@@ -6,9 +6,9 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config import COMMAND_LIST
-from db import init_db
-from history import channel_history
+from config import CHAR_LIMIT, COMMAND_LIST, TIME_INDICATORS, WEB_SEARCH_KEYWORDS
+from db import get_quote_by_key, init_db
+from history import add_message_to_history, channel_history
 from utils.ai import chat_with_ai
 from utils.notes import load_personal_notes, search_personal_notes
 
@@ -53,8 +53,6 @@ async def on_message(message):
         return
 
     if not message.content.startswith("!"):
-        from history import add_message_to_history
-
         add_message_to_history(
             message.channel.id, message.author.display_name, message.content
         )
@@ -70,8 +68,6 @@ async def on_message(message):
             await bot.process_commands(message)
             return
         else:
-            from db import get_quote_by_key
-
             quote = await get_quote_by_key(keyword)
             if quote:
                 await message.channel.send(quote)
@@ -84,9 +80,6 @@ async def on_message(message):
 
 async def handle_ai_chat(message):
     """Handle AI chat messages starting with 'paruru, '"""
-    from config import CHAR_LIMIT, TIME_INDICATORS, WEB_SEARCH_KEYWORDS
-    from history import add_message_to_history
-
     cleaned_content = message.content[8:].strip()
 
     try:
@@ -125,7 +118,7 @@ async def handle_ai_chat(message):
 
     except Exception as e:
         print(f"Error generating response: {e}")
-        await message.channel.send("Oops, something broke, gimme a sec...")
+        await message.channel.send("oops, something broke, gimme a sec...")
 
 
 async def load_cogs():
