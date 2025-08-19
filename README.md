@@ -34,10 +34,6 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 ### Installation
 
 1. **Clone the repository**
-   ```bash
-   git clone https://github.com/sengakae/parurubot.git
-   cd discord-bot
-   ```
 
 2. **Set up virtual environment**
    ```bash
