@@ -88,7 +88,7 @@ discord-bot/
 └── requirements.txt       # Python dependencies
 ```
 
-## 🎮 Commands
+## Commands
 
 ### AI Chat
 - **`paruru, [message]`** - Chat with the AI assistant
