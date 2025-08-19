@@ -1,14 +1,18 @@
 import os
 import random
+
 import asyncpg
 
-DATABASE_URL = os.getenv("DATABASE_URL")
 pool = None
 
 
 async def init_db():
     global pool
-    pool = await asyncpg.create_pool(DATABASE_URL)
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("DATABASE_URL is not set. Did you load .env?")
+    
+    pool = await asyncpg.create_pool(dsn=db_url)
     async with pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS quotes (

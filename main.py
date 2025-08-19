@@ -1,13 +1,26 @@
-import json
+import asyncio
 import os
 import re
+from pathlib import Path
 
+import chromadb
 import discord
 import google.generativeai as genai
+import pandas as pd
 import requests
 from discord.ext import commands
 from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
 
+# Uses local config.py
+from config import (
+    CHAR_LIMIT,
+    COMMAND_LIST,
+    MAX_HISTORY,
+    SYSTEM_PROMPT,
+    TIME_INDICATORS,
+    WEB_SEARCH_KEYWORDS,
+)
 from db import (
     add_quote,
     get_all_keys,
@@ -17,23 +30,12 @@ from db import (
     remove_quote,
 )
 
-# Uses local config.py
-# from config import (
-#     CHAR_LIMIT,
-#     COMMAND_LIST,
-#     MAX_HISTORY,
-#     SYSTEM_PROMPT,
-#     TIME_INDICATORS,
-#     WEB_SEARCH_KEYWORDS,
-# )
-
-
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
-CHAR_LIMIT = int(os.getenv("CHAR_LIMIT", 2000))
-MAX_HISTORY = int(os.getenv("MAX_HISTORY", 20))
-WEB_SEARCH_KEYWORDS = json.loads(os.getenv("WEB_SEARCH_KEYWORDS", '[]'))
-TIME_INDICATORS = json.loads(os.getenv("TIME_INDICATORS", '[]'))
-COMMAND_LIST = json.loads(os.getenv("COMMAND_LIST", '[]'))
+# SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+# CHAR_LIMIT = int(os.getenv("CHAR_LIMIT", 2000))
+# MAX_HISTORY = int(os.getenv("MAX_HISTORY", 20))
+# WEB_SEARCH_KEYWORDS = json.loads(os.getenv("WEB_SEARCH_KEYWORDS", '[]'))
+# TIME_INDICATORS = json.loads(os.getenv("TIME_INDICATORS", '[]'))
+# COMMAND_LIST = json.loads(os.getenv("COMMAND_LIST", '[]'))
 
 load_dotenv()
 
@@ -44,8 +46,113 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
 model = genai.GenerativeModel("gemini-2.0-flash")
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
 channel_history = {}
+
+try:
+    collection = chroma_client.get_collection("personal_notes")
+    print("Loaded existing notes database")
+except:
+    collection = chroma_client.create_collection("personal_notes")
+    print("Created new notes database")
+
+
+def load_personal_notes():
+    """Load all .txt files from a 'notes' folder into the vector database"""
+    notes_folder = Path("./notes")
+    if not notes_folder.exists():
+        print("No notes folder found - create ./notes/ and add .txt files")
+        return
+    
+    print("Looking for TXT files...")
+    for note_file in notes_folder.rglob("*.txt"):
+        print("Found TXT:", note_file)
+        try:
+            with open(note_file, 'r', encoding='utf-8') as file:
+                content = file.read()
+            
+            chunks = [content[i:i+1000] for i in range(0, len(content), 800)]
+            
+            for i, chunk in enumerate(chunks):
+                relative_path = note_file.relative_to(notes_folder)
+                doc_id = f"{note_file.stem}_{i}"
+                collection.upsert(
+                    documents=[chunk],
+                    ids=[doc_id],
+                    metadatas=[{"source": str(relative_path), "chunk": i}]
+                )
+            print(f"Loaded {relative_path} ({len(chunks)} chunks)")
+        except Exception as e:
+            print(f"Error loading {note_file.name}: {e}")
+
+    print("Looking for CSV files...")
+    for csv_file in notes_folder.rglob("*.csv"):
+        print("Found CSV:", csv_file)
+        try:
+            df = pd.read_csv(csv_file)
+            
+            content_chunks = []
+            
+            summary = f"CSV Summary - File: {csv_file.name}, Columns: {', '.join(df.columns)}, Total rows: {len(df)}"
+            content_chunks.append(summary)
+            
+            for idx, row in df.iterrows():
+                row_items = []
+                for col, val in row.items():
+                    if pd.notna(val) and str(val).strip():
+                        row_items.append(f"{col}: {val}")
+                
+                if row_items:
+                    row_text = f"Entry {idx + 1} - " + ", ".join(row_items)
+                    content_chunks.append(row_text)
+            
+            grouped_chunks = []
+            for i in range(0, len(content_chunks), 8):
+                chunk = "\n".join(content_chunks[i:i+8])
+                grouped_chunks.append(chunk)
+            
+            relative_path = csv_file.relative_to(notes_folder)
+            for i, chunk in enumerate(grouped_chunks):
+                doc_id = f"{relative_path.stem}_csv_{i}"
+                collection.upsert(
+                    documents=[chunk],
+                    ids=[doc_id],
+                    metadatas=[{"source": str(relative_path), "type": "csv", "chunk": i, "total_rows": len(df)}]
+                )
+            
+            print(f"Loaded CSV {relative_path} ({len(df)} rows → {len(grouped_chunks)} chunks)")
+            
+        except Exception as e:
+            print(f"Error loading CSV {csv_file}: {e}")
+
+
+def search_personal_notes(query, n_results=3):
+    """Search personal notes for relevant information"""
+    try:
+        results = collection.query(
+            query_texts=[query],
+            n_results=n_results
+        )
+        
+        if results['documents'] and results['documents'][0]:
+            relevant_info = []
+            for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
+                source_file = metadata['source']
+                file_type = metadata.get('type', 'unknown')
+                
+                if file_type == 'csv':
+                    preview = doc[:400] + "..." if len(doc) > 400 else doc
+                    relevant_info.append(f"From CSV {source_file}:\n{preview}")
+                else:
+                    preview = doc[:300] + "..." if len(doc) > 300 else doc
+                    relevant_info.append(f"From {source_file}: {preview}")
+            return "\n\n".join(relevant_info)
+        return None
+    except:
+        return None
+
 
 def add_message_to_history(
     channel_id: int, author_name: str, content: str, is_bot: bool = False
@@ -89,6 +196,9 @@ async def on_ready():
         print(f"Failed to connect to DB: {e}")
         import sys
         sys.exit(1)
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, load_personal_notes)
 
     server_count = len(bot.guilds)
     for server in bot.guilds:
@@ -335,12 +445,18 @@ async def on_message(message):
                 history_context += f"\nCurrent message: {cleaned_content}"
                 print(f"Using {len(channel_history[channel_id])} messages of context")
 
+            relevant_notes = search_personal_notes(cleaned_content, n_results=2)
+            notes_context = ""
+            if relevant_notes:
+                notes_context = f"\n\nRelevant information from your personal notes:\n{relevant_notes}"
+                print("Found relevant notes for this query")
+
             needs_web_search = any(keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS) or \
                                any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS)
 
             if needs_web_search:
                 print("Using web search model for current information")
-                search_prompt = f"{SYSTEM_PROMPT}\n\nNow, please provide current and up-to-date information about: {cleaned_content}. Use your knowledge to give the most recent and accurate information available. Keep your response concise and under {CHAR_LIMIT} characters while maintaining your casual, friendly personality."
+                search_prompt = f"{SYSTEM_PROMPT}{notes_context}\n\nNow, please provide current and up-to-date information about: {cleaned_content}. Use your knowledge to give the most recent and accurate information available. Keep your response concise and under {CHAR_LIMIT} characters while maintaining your casual, friendly personality."
                 if history_context:
                     search_prompt += (
                         f"\n\nContext from recent conversation:\n{history_context}"
@@ -364,7 +480,7 @@ async def on_message(message):
             else:
                 print("Using regular model for conversation")
                 conversation = [
-                    {"role": "user", "parts": [SYSTEM_PROMPT]},
+                    {"role": "user", "parts": [f"{SYSTEM_PROMPT}{notes_context}"]},
                     {
                         "role": "model",
                         "parts": ["got it! i'll be casual and friendly in our chats"],
@@ -385,7 +501,6 @@ async def on_message(message):
                 response = model.generate_content(conversation)
 
             print(f"Response: {response.text}")
-
             add_message_to_history(message.channel.id, "Bot", response.text, is_bot=True)
 
             if len(response.text) > CHAR_LIMIT:
@@ -397,5 +512,4 @@ async def on_message(message):
             await message.channel.send("Oops, something broke, gimme a sec...")
         return
 
-bot.run(DISCORD_TOKEN)
 bot.run(DISCORD_TOKEN)
