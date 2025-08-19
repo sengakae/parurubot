@@ -35,7 +35,7 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 
 1. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/sengakae/parurubot.git
    cd discord-bot
    ```
 
