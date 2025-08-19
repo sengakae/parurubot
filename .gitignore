@@ -54,3 +54,51 @@ Thumbs.db
 
 # Quotes file
 quotes.json
+
+# Discord Bot Specific
+# Vector database storage
+chroma_db/
+# Personal notes (if you don't want to track them)
+notes/
+# Archive files
+archive/
+# Bot token and sensitive data
+token.txt
+secrets.json
+
+# Additional Python patterns
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+# pytest cache
+.pytest_cache/
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# Additional OS patterns
+# Windows
+ehthumbs.db
+Desktop.ini
+# macOS
+.AppleDouble
+.LSOverride
+# Linux
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Large media files (if any)
+*.mp3
+*.mp4
+*.avi
+*.mov
+*.wav
+*.flac
