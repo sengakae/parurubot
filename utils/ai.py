@@ -66,6 +66,23 @@ async def download_image_from_url(url):
         return None
 
 
+def convert_pil_to_part(pil_image):
+    """Convert PIL Image to a Google GenAI Part object."""
+    if pil_image.mode in ('RGBA', 'P'):
+        pil_image = pil_image.convert('RGB')
+
+    img_byte_arr = io.BytesIO()
+    pil_image.save(img_byte_arr, format='JPEG')
+    img_byte_arr.seek(0)
+    
+    return {
+        'inline_data': {
+            'mime_type': 'image/jpeg',
+            'data': img_byte_arr.getvalue()
+        }
+    }
+
+
 def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_web_search=False, images = None):
     """
     Generate a response from the AI given user input, optional history, and notes.
@@ -83,6 +100,7 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
         "role": "user",
         "parts": [{"text": system_message}]
     })
+
     conversation.append({
         "role": "model", 
         "parts": [{"text": "got it! i'll be casual and friendly in our chats"}]
@@ -97,7 +115,7 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     current_prompt = [{"text": cleaned_content}]
     if images:
         for img in images:
-            current_prompt.append(img) 
+            current_prompt.append(convert_pil_to_part(img)) 
     
     conversation.append({
         "role": "user",
