@@ -1,6 +1,6 @@
 chromadb
 discord.py
-google-generativeai
+google-genai
 pandas
 requests
 python-dotenv
