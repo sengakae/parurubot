@@ -1,14 +1,22 @@
 import io
 
-import google.generativeai as genai
 import requests
+from google import genai
+from google.genai import types
 from PIL import Image
 
 from config import CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT
 
-genai.configure(api_key=GEMINI_API_KEY)
+grounding_tool = types.Tool(
+    google_search=types.GoogleSearch()
+)
 
-model = genai.GenerativeModel("gemini-2.0-flash")
+grounding_config = types.GenerateContentConfig(
+    tools=[grounding_tool]
+)
+
+client = genai.Client(api_key=GEMINI_API_KEY)
+MODEL = "gemini-2.0-flash"
 
 
 def summarize_channel(messages):
@@ -36,7 +44,10 @@ def summarize_channel(messages):
         f"Here's the conversation:\n\n{conversation_text}"
     )
 
-    response = model.generate_content(summary_prompt)
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=summary_prompt
+    )
     text = response.text or "No summary generated."
 
     if len(text) > CHAR_LIMIT:
@@ -60,49 +71,56 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     Generate a response from the AI given user input, optional history, and notes.
     Handles both regular and web-search style prompts.
     """
-    content = []
+
+    system_message = f"{SYSTEM_PROMPT}{notes_context}"
 
     if images:
         print(f"Processing {len(images)} images")
-        content.extend(images)
+        system_message += "\n\nYou can see and analyze images that users share. Describe what you see and respond naturally to any questions about the images."
+
+    conversation = []
+    conversation.append({
+        "role": "user",
+        "parts": [{"text": system_message}]
+    })
+    conversation.append({
+        "role": "model", 
+        "parts": [{"text": "got it! i'll be casual and friendly in our chats"}]
+    })
+
+    if history_context:
+        conversation.append({
+            "role": "user",
+            "parts": [{"text": f"Here's the recent conversation context:\n{history_context}"}]
+        })
+
+    current_prompt = [{"text": cleaned_content}]
+    if images:
+        for img in images:
+            current_prompt.append(img) 
+    
+    conversation.append({
+        "role": "user",
+        "parts": current_prompt
+    })
 
     if needs_web_search:
         print("Using web search model for current information")
-        search_prompt = (
-            f"{SYSTEM_PROMPT}{notes_context}\n\n"
-            f"Now, please provide current and up-to-date information about: {cleaned_content}. "
-            f"Use your knowledge to give the most recent and accurate information available. "
-            f"Keep your response concise and under {CHAR_LIMIT} characters while maintaining your casual, friendly personality."
-        )
-        if history_context:
-            search_prompt += f"\n\nContext from recent conversation:\n{history_context}"
+        grounding_tool = types.Tool(google_search=types.GoogleSearch())
+        config = types.GenerateContentConfig(tools=[grounding_tool])
 
-        content.append(search_prompt)
-        response = model.generate_content(content)
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=conversation,
+            config=config
+        )
     else:
         print("Using regular model for conversation")
 
-        system_message = f"{SYSTEM_PROMPT}{notes_context}"
-        if images:
-            system_message += "\n\nYou can see and analyze images that users share. Describe what you see and respond naturally to any questions about the images."
-
-        conversation = [
-            {"role": "user", "parts": [system_message]},
-            {"role": "model", "parts": ["got it! i'll be casual and friendly in our chats"]},
-        ]
-
-        if history_context:
-            conversation.append(
-                {
-                    "role": "user",
-                    "parts": [f"Here's the recent conversation context:\n{history_context}"],
-                }
-            )
-
-        content.append(cleaned_content)
-
-        conversation.append({"role": "user", "parts": content})
-        response = model.generate_content(conversation)
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=conversation
+        )
 
     text = response.text or "No response generated."
 
