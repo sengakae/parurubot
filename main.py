@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from config import CHAR_LIMIT, COMMAND_LIST, TIME_INDICATORS, WEB_SEARCH_KEYWORDS
 from db import get_quote_by_key, init_db
 from history import add_message_to_history, channel_history
-from utils.ai import chat_with_ai
+from utils.ai import chat_with_ai, download_image_from_url
 from utils.notes import load_personal_notes, search_personal_notes
 
 load_dotenv()
@@ -52,9 +52,17 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
+    message_content = message.content
+    if message.attachments:
+        image_count = sum(1 for att in message.attachments
+                          if any(att.filename.lower().endswith(ext)
+                                 for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']))
+        if image_count > 0:
+            message_content += f" [sent {image_count} image(s)]"
+
     if not message.content.startswith("!"):
         add_message_to_history(
-            message.channel.id, message.author.display_name, message.content
+            message.channel.id, message.author.display_name, message_content
         )
 
     content = message.content.split()
@@ -100,12 +108,24 @@ async def handle_ai_chat(message):
             )
             print("Found relevant notes for this query")
 
+        images = []
+        if message.attachments:
+            print(f"Found {len(message.attachments)} attachments")
+            for attachment in message.attachments:
+                if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+                    print(f"Processing image: {attachment.filename}")
+                    image = await download_image_from_url(attachment.url)
+                    if image:
+                        images.append(image)
+                        if not cleaned_content.strip():
+                            cleaned_content = "What do you see in this image?"
+
         needs_web_search = any(
             keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
         ) or any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS)
 
         response_text = chat_with_ai(
-            cleaned_content, history_context, notes_context, needs_web_search
+            cleaned_content, history_context, notes_context, needs_web_search, images
         )
 
         print(f"Response: {response_text}")
