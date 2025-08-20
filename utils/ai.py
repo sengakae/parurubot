@@ -1,4 +1,8 @@
+import io
+
 import google.generativeai as genai
+import requests
+from PIL import Image
 
 from config import CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT
 
@@ -40,11 +44,28 @@ def summarize_channel(messages):
     return text
 
 
-def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_web_search=False):
+async def download_image_from_url(url):
+    """Download and return PIL Image from URL"""
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        return Image.open(io.BytesIO(response.content))
+    except Exception as e:
+        print(f"Error downloading image: {e}")
+        return None
+
+
+def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_web_search=False, images = None):
     """
     Generate a response from the AI given user input, optional history, and notes.
     Handles both regular and web-search style prompts.
     """
+    content = []
+
+    if images:
+        print(f"Processing {len(images)} images")
+        content.extend(images)
+
     if needs_web_search:
         print("Using web search model for current information")
         search_prompt = (
@@ -56,11 +77,17 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
         if history_context:
             search_prompt += f"\n\nContext from recent conversation:\n{history_context}"
 
-        response = model.generate_content(search_prompt)
+        content.append(search_prompt)
+        response = model.generate_content(content)
     else:
         print("Using regular model for conversation")
+
+        system_message = f"{SYSTEM_PROMPT}{notes_context}"
+        if images:
+            system_message += "\n\nYou can see and analyze images that users share. Describe what you see and respond naturally to any questions about the images."
+
         conversation = [
-            {"role": "user", "parts": [f"{SYSTEM_PROMPT}{notes_context}"]},
+            {"role": "user", "parts": [system_message]},
             {"role": "model", "parts": ["got it! i'll be casual and friendly in our chats"]},
         ]
 
@@ -72,7 +99,9 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
                 }
             )
 
-        conversation.append({"role": "user", "parts": [cleaned_content]})
+        content.append(cleaned_content)
+
+        conversation.append({"role": "user", "parts": content})
         response = model.generate_content(conversation)
 
     text = response.text or "No response generated."
