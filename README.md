@@ -9,6 +9,7 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 - **Context Awareness**: Remembers the last 20 messages in each channel for contextual responses
 - **Personal Notes Integration**: Searches through your personal notes to provide relevant information
 - **Smart Response Types**: Automatically detects when to provide current information vs. conversational responses
+- **Image Attachment**: Detects when you attach an image, parses it, and sends it to Gemini AI for analysis or conversation
 
 ### Personal Notes Management
 - **Vector Database**: Automatically loads and indexes `.txt` and `.csv` files from the `notes/` folder
