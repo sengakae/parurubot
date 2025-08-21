@@ -107,71 +107,72 @@ async def handle_ai_chat(message):
     """Handle AI chat messages starting with 'paruru, '"""
     cleaned_content = message.content[8:].strip()
 
-    try:
-        channel_id = message.channel.id
+    async with message.channel.typing():
+        try:
+            channel_id = message.channel.id
 
-        history_messages = get_channel_history(channel_id, include_media=True)
-        history_context = ""
+            history_messages = get_channel_history(channel_id, include_media=True)
+            history_context = ""
 
-        if history_messages:
-            history_context = "\n\nRecent conversation context (last 20 messages):\n"
-            for msg in history_messages:
-                history_context += f"{msg['author']}: {msg['content']}\n"
-            
-            history_context += f"\nCurrent message: {cleaned_content}"
-            print(f"Using {len(history_messages)} messages of context")
+            if history_messages:
+                history_context = "\n\nRecent conversation context (last 20 messages):\n"
+                for msg in history_messages:
+                    history_context += f"{msg['author']}: {msg['content']}\n"
+                
+                history_context += f"\nCurrent message: {cleaned_content}"
+                print(f"Using {len(history_messages)} messages of context")
 
-        relevant_notes = search_personal_notes(cleaned_content, n_results=2)
-        notes_context = ""
-        if relevant_notes:
-            notes_context = (
-                f"\n\nRelevant information from your personal notes:\n{relevant_notes}"
+            relevant_notes = search_personal_notes(cleaned_content, n_results=2)
+            notes_context = ""
+            if relevant_notes:
+                notes_context = (
+                    f"\n\nRelevant information from your personal notes:\n{relevant_notes}"
+                )
+                print("Found relevant notes for this query")
+
+            current_images  = []
+            if message.attachments:
+                print(f"Found {len(message.attachments)} attachments")
+                for attachment in message.attachments:
+                    if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+                        image = await download_image_from_url(attachment.url)
+                        if image:
+                            current_images.append(image)
+                            if not cleaned_content.strip():
+                                cleaned_content = "What do you see in this image?"
+
+            current_youtube_urls = extract_youtube_urls(cleaned_content)
+            if current_youtube_urls:
+                print(f"Found {len(current_youtube_urls)} YouTube URLs: {current_youtube_urls}")
+
+
+            if len(current_images) > MAX_IMAGES:
+                print(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
+                current_images = current_images[:MAX_IMAGES - len(current_images)]
+                
+            if len(current_youtube_urls) > MAX_VIDEOS:
+                print(f"Limiting YouTube URLs from {len(current_youtube_urls)} to {MAX_VIDEOS}")
+                current_youtube_urls = current_youtube_urls[:MAX_VIDEOS - len(current_youtube_urls)]
+
+            needs_web_search = any(
+                keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
+            ) or any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS) or len(current_youtube_urls)
+
+            response_text = chat_with_ai(
+                cleaned_content, history_context, notes_context, needs_web_search, current_images, current_youtube_urls
             )
-            print("Found relevant notes for this query")
 
-        current_images  = []
-        if message.attachments:
-            print(f"Found {len(message.attachments)} attachments")
-            for attachment in message.attachments:
-                if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
-                    image = await download_image_from_url(attachment.url)
-                    if image:
-                        current_images.append(image)
-                        if not cleaned_content.strip():
-                            cleaned_content = "What do you see in this image?"
+            print(f"Response: {response_text}")
+            add_message_to_history(message.channel.id, "Bot", response_text, is_bot=True)
 
-        current_youtube_urls = extract_youtube_urls(cleaned_content)
-        if current_youtube_urls:
-            print(f"Found {len(current_youtube_urls)} YouTube URLs: {current_youtube_urls}")
+            if len(response_text) > CHAR_LIMIT:
+                await message.channel.send("whoa that's way too much text, my brain hurts!")
+            else:
+                await message.channel.send(response_text)
 
-
-        if len(current_images) > MAX_IMAGES:
-            print(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
-            current_images = current_images[:MAX_IMAGES - len(current_images)]
-            
-        if len(current_youtube_urls) > MAX_VIDEOS:
-            print(f"Limiting YouTube URLs from {len(current_youtube_urls)} to {MAX_VIDEOS}")
-            current_youtube_urls = current_youtube_urls[:MAX_VIDEOS - len(current_youtube_urls)]
-
-        needs_web_search = any(
-            keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
-        ) or any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS) or len(current_youtube_urls)
-
-        response_text = chat_with_ai(
-            cleaned_content, history_context, notes_context, needs_web_search, current_images, current_youtube_urls
-        )
-
-        print(f"Response: {response_text}")
-        add_message_to_history(message.channel.id, "Bot", response_text, is_bot=True)
-
-        if len(response_text) > CHAR_LIMIT:
-            await message.channel.send("whoa that's way too much text, my brain hurts!")
-        else:
-            await message.channel.send(response_text)
-
-    except Exception as e:
-        print(f"Error generating response: {e}")
-        await message.channel.send("oops, something broke, gimme a sec...")
+        except Exception as e:
+            print(f"Error generating response: {e}")
+            await message.channel.send("oops, something broke, gimme a sec...")
 
 
 async def load_cogs():
