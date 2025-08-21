@@ -12,7 +12,7 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 - **Image Attachment**: Detects when you attach an image, parses it, and sends it to Gemini AI for analysis or conversation
 
 ### Personal Notes Management
-- **Vector Database**: Automatically loads and indexes `.txt` and `.csv` files from the `notes/` folder
+- **Vector Database**: Automatically loads and indexes `.txt`, `.csv`, and `.json` files from the `notes/` folder
 - **Semantic Search**: Finds relevant information from your notes using AI-powered search
 - **Multiple Formats**: Supports both text files and CSV data with automatic chunking and indexing
 
