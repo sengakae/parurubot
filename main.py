@@ -8,13 +8,16 @@ from dotenv import load_dotenv
 
 from config import CHAR_LIMIT, COMMAND_LIST, TIME_INDICATORS, WEB_SEARCH_KEYWORDS
 from db import get_quote_by_key, init_db
-from history import add_message_to_history, channel_history
-from utils.ai import chat_with_ai, download_image_from_url
+from history import add_message_to_history, get_channel_history
+from utils.ai import chat_with_ai, download_image_from_url, extract_youtube_urls
 from utils.notes import load_personal_notes, search_personal_notes
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
+MAX_IMAGES = 10
+MAX_VIDEOS = 5
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -52,17 +55,31 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    message_content = message.content
+    message_images = []
     if message.attachments:
-        image_count = sum(1 for att in message.attachments
-                          if any(att.filename.lower().endswith(ext)
-                                 for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']))
-        if image_count > 0:
-            message_content += f" [sent {image_count} image(s)]"
+        print(f"Found {len(message.attachments)} attachments")
+        for attachment in message.attachments:
+            if any(attachment.filename.lower().endswith(ext) 
+                   for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+                print(f"Downloading image: {attachment.filename}")
+                image = await download_image_from_url(attachment.url)
+                if image:
+                    message_images.append(image)
+
+    youtube_urls = extract_youtube_urls(message.content)
+
+    message_content = message.content
+    if message_images:
+        message_content += f" [sent {len(message_images)} image(s)]"
+    if youtube_urls:
+        message_content += f" [shared {len(youtube_urls)} YouTube video(s)]"
 
     if not message.content.startswith("!"):
         add_message_to_history(
-            message.channel.id, message.author.display_name, message_content
+            message.channel.id, 
+            message.author.display_name, 
+            message_content, 
+            is_bot=False
         )
 
     content = message.content.split()
@@ -92,13 +109,17 @@ async def handle_ai_chat(message):
 
     try:
         channel_id = message.channel.id
+
+        history_messages = get_channel_history(channel_id, include_media=True)
         history_context = ""
-        if channel_id in channel_history and channel_history[channel_id]:
+
+        if history_messages:
             history_context = "\n\nRecent conversation context (last 20 messages):\n"
-            for msg in channel_history[channel_id]:
+            for msg in history_messages:
                 history_context += f"{msg['author']}: {msg['content']}\n"
+            
             history_context += f"\nCurrent message: {cleaned_content}"
-            print(f"Using {len(channel_history[channel_id])} messages of context")
+            print(f"Using {len(history_messages)} messages of context")
 
         relevant_notes = search_personal_notes(cleaned_content, n_results=2)
         notes_context = ""
@@ -108,24 +129,36 @@ async def handle_ai_chat(message):
             )
             print("Found relevant notes for this query")
 
-        images = []
+        current_images  = []
         if message.attachments:
             print(f"Found {len(message.attachments)} attachments")
             for attachment in message.attachments:
                 if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
-                    print(f"Processing image: {attachment.filename}")
                     image = await download_image_from_url(attachment.url)
-                    if image:
-                        images.append(image)
+                    if current_images :
+                        current_images .append(image)
                         if not cleaned_content.strip():
                             cleaned_content = "What do you see in this image?"
 
+        current_youtube_urls = extract_youtube_urls(cleaned_content)
+        if current_youtube_urls:
+            print(f"Found {len(current_youtube_urls)} YouTube URLs: {current_youtube_urls}")
+
+
+        if len(current_images) > MAX_IMAGES:
+            print(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
+            current_images = current_images[:MAX_IMAGES - len(current_images)]
+            
+        if len(current_youtube_urls) > MAX_VIDEOS:
+            print(f"Limiting YouTube URLs from {len(current_youtube_urls)} to {MAX_VIDEOS}")
+            current_youtube_urls = current_youtube_urls[:MAX_VIDEOS - len(current_youtube_urls)]
+
         needs_web_search = any(
             keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
-        ) or any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS)
+        ) or any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS) or len(current_youtube_urls)
 
         response_text = chat_with_ai(
-            cleaned_content, history_context, notes_context, needs_web_search, images
+            cleaned_content, history_context, notes_context, needs_web_search, current_images, current_youtube_urls
         )
 
         print(f"Response: {response_text}")
