@@ -1,11 +1,12 @@
 import io
+import re
 
 import requests
 from google import genai
 from google.genai import types
 from PIL import Image
 
-from config import CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT
+from config import CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT, VIDEO_SUMMARY_PROMPT
 
 grounding_tool = types.Tool(
     google_search=types.GoogleSearch()
@@ -16,7 +17,17 @@ grounding_config = types.GenerateContentConfig(
 )
 
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-2.5-flash"
+
+
+def extract_youtube_urls(text):
+    """Extract YouTube URLs from text"""
+    youtube_pattern = r'https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/)([a-zA-Z0-9_-]+)'
+    matches = re.findall(youtube_pattern, text)
+    urls = []
+    for match in matches:
+        urls.append(f"https://www.youtube.com/watch?v={match}")
+    return urls
 
 
 def summarize_channel(messages):
@@ -83,7 +94,17 @@ def convert_pil_to_part(pil_image):
     }
 
 
-def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_web_search=False, images = None):
+def create_youtube_part(url):
+    """Create a part for YouTube video content"""
+    return {
+        'file_data': {
+            'mime_type': 'video/*',
+            'fileUri': url
+        }
+    }
+
+
+def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_web_search=False, images = None, youtube_urls = None):
     """
     Generate a response from the AI given user input, optional history, and notes.
     Handles both regular and web-search style prompts.
@@ -94,6 +115,10 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     if images:
         print(f"Processing {len(images)} images")
         system_message += "\n\nYou can see and analyze images that users share. Describe what you see and respond naturally to any questions about the images."
+
+    if youtube_urls:
+        print(f"Processing {len(youtube_urls)} YouTube videos")
+        system_message = VIDEO_SUMMARY_PROMPT
 
     conversation = []
     conversation.append({
@@ -116,6 +141,15 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     if images:
         for img in images:
             current_prompt.append(convert_pil_to_part(img)) 
+
+    if youtube_urls:
+        for url in youtube_urls:
+            try:
+                current_prompt.append({"text": f"Please summarize this YouTube video"})
+                current_prompt.append(create_youtube_part(url))
+            except Exception as e:
+                print(f"Error processing YouTube URL {url}: {e}")
+                current_prompt.append({"text": f"Failed to process Youtube link: {url}"})
     
     conversation.append({
         "role": "user",
