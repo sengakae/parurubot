@@ -135,8 +135,8 @@ async def handle_ai_chat(message):
             for attachment in message.attachments:
                 if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
                     image = await download_image_from_url(attachment.url)
-                    if current_images :
-                        current_images .append(image)
+                    if image:
+                        current_images.append(image)
                         if not cleaned_content.strip():
                             cleaned_content = "What do you see in this image?"
 
