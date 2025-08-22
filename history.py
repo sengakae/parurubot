@@ -23,9 +23,9 @@ def add_message_to_history(channel_id, author, content, is_bot=False, images=Non
 
     media_info = []
     if images:
-        media_info.append(f"{', '.join(images)}")
+        media_info.append(f"{len(images)} image(s)")
     if videos:
-        media_info.append(f"{', '.join(videos)}")
+        media_info.append(f"{len(videos)} video(s)")
 
     print(f"Message ({len(channel_history[channel_id])}/{MAX_HISTORY}): {channel_id} - {author}, {media_info}")
 
