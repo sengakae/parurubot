@@ -119,12 +119,36 @@ async def handle_ai_chat(message):
         try:
             channel_id = message.channel.id
 
+            current_images  = []
+            if message.attachments:
+                print(f"Found {len(message.attachments)} attachments")
+                for attachment in message.attachments:
+                    if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
+                        image = await download_image_from_url(attachment.url)
+                        if image:
+                            current_images.append(image)
+                            if not cleaned_content.strip():
+                                cleaned_content = "What do you see in this image?"
+
+            current_videos = extract_youtube_urls(cleaned_content)
+            if current_videos:
+                print(f"Found {len(current_videos)} YouTube URLs: {current_videos}")
+
+
+            if len(current_images) > MAX_IMAGES:
+                print(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
+                current_images = current_images[:MAX_IMAGES - len(current_images)]
+                
+            if len(current_videos) > MAX_VIDEOS:
+                print(f"Limiting YouTube URLs from {len(current_videos)} to {MAX_VIDEOS}")
+                current_videos = current_videos[:MAX_VIDEOS - len(current_videos)]
+            
             history_messages = get_channel_history(channel_id, include_media=True)
             history_context = ""
 
             if history_messages:
                 conversation_parts = [{"text": "Here's the recent conversation context:"}]
-                added_media = False
+                added_media = bool(current_images or current_videos)
 
                 for msg in history_messages:
                     if msg["has_media"]:
@@ -166,30 +190,6 @@ async def handle_ai_chat(message):
                     f"\n\nRelevant information from your personal notes:\n{relevant_notes}"
                 )
                 print("Found relevant notes for this query")
-
-            current_images  = []
-            if message.attachments:
-                print(f"Found {len(message.attachments)} attachments")
-                for attachment in message.attachments:
-                    if any(attachment.filename.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
-                        image = await download_image_from_url(attachment.url)
-                        if image:
-                            current_images.append(image)
-                            if not cleaned_content.strip():
-                                cleaned_content = "What do you see in this image?"
-
-            current_videos = extract_youtube_urls(cleaned_content)
-            if current_videos:
-                print(f"Found {len(current_videos)} YouTube URLs: {current_videos}")
-
-
-            if len(current_images) > MAX_IMAGES:
-                print(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
-                current_images = current_images[:MAX_IMAGES - len(current_images)]
-                
-            if len(current_videos) > MAX_VIDEOS:
-                print(f"Limiting YouTube URLs from {len(current_videos)} to {MAX_VIDEOS}")
-                current_videos = current_videos[:MAX_VIDEOS - len(current_videos)]
 
             needs_web_search = any(
                 keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
