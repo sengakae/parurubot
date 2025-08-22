@@ -4,15 +4,30 @@ from config import MAX_HISTORY
 
 channel_history = defaultdict(lambda: deque(maxlen=MAX_HISTORY))
 
-def add_message_to_history(channel_id, author, content, is_bot=False):
+def add_message_to_history(channel_id, author, content, is_bot=False, images=None, videos=None):
     """Add a message to the channel history with optional media content."""
+
+    images = images or []
+    videos = videos or []
+
     message_data = {
         'author': author,
         'content': content,
-        'is_bot': is_bot
+        'is_bot': is_bot,
+        'images': images,
+        'videos': videos,
+        'has_media': bool(images or videos),
     }
     
     channel_history[channel_id].append(message_data)
+
+    media_info = []
+    if images:
+        media_info.append(f"{', '.join(images)}")
+    if videos:
+        media_info.append(f"{', '.join(videos)}")
+
+    print(f"Message ({len(channel_history[channel_id])}/{MAX_HISTORY}): {channel_id} - {author}, {media_info}")
 
 
 def get_channel_history(channel_id, include_media=False):

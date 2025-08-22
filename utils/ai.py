@@ -94,7 +94,7 @@ def convert_pil_to_part(pil_image):
     }
 
 
-def create_youtube_part(url):
+def convert_video_to_part(url):
     """Create a part for YouTube video content"""
     return {
         'file_data': {
@@ -104,7 +104,7 @@ def create_youtube_part(url):
     }
 
 
-def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_web_search=False, images = None, youtube_urls = None):
+def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_web_search=False, images=None, videos=None):
     """
     Generate a response from the AI given user input, optional history, and notes.
     Handles both regular and web-search style prompts.
@@ -114,10 +114,9 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
 
     if images:
         print(f"Processing {len(images)} images")
-        system_message += "\n\nYou can see and analyze images that users share. Describe what you see and respond naturally to any questions about the images."
 
-    if youtube_urls:
-        print(f"Processing {len(youtube_urls)} YouTube videos")
+    if videos:
+        print(f"Processing {len(videos)} YouTube videos")
         system_message = VIDEO_SUMMARY_PROMPT
 
     conversation = []
@@ -132,24 +131,16 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     })
 
     if history_context:
-        conversation.append({
-            "role": "user",
-            "parts": [{"text": f"Here's the recent conversation context:\n{history_context}"}]
-        })
+        conversation.append(history_context)
 
     current_prompt = [{"text": cleaned_content}]
     if images:
         for img in images:
             current_prompt.append(convert_pil_to_part(img)) 
 
-    if youtube_urls:
-        for url in youtube_urls:
-            try:
-                current_prompt.append({"text": f"Please summarize this YouTube video"})
-                current_prompt.append(create_youtube_part(url))
-            except Exception as e:
-                print(f"Error processing YouTube URL {url}: {e}")
-                current_prompt.append({"text": f"Failed to process Youtube link: {url}"})
+    if videos:
+        for url in videos:
+            current_prompt.append(convert_video_to_part(url))
     
     conversation.append({
         "role": "user",

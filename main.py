@@ -9,7 +9,13 @@ from dotenv import load_dotenv
 from config import CHAR_LIMIT, COMMAND_LIST, TIME_INDICATORS, WEB_SEARCH_KEYWORDS
 from db import get_quote_by_key, init_db
 from history import add_message_to_history, get_channel_history
-from utils.ai import chat_with_ai, download_image_from_url, extract_youtube_urls
+from utils.ai import (
+    chat_with_ai,
+    convert_pil_to_part,
+    convert_video_to_part,
+    download_image_from_url,
+    extract_youtube_urls,
+)
 from utils.notes import load_personal_notes, search_personal_notes
 
 load_dotenv()
@@ -54,6 +60,26 @@ async def on_message(message):
     """Handle incoming messages"""
     if message.author == bot.user:
         return
+    
+    content = message.content.split()
+    if not content and not message.attachments:
+        return
+    
+    if content:
+        if content[0].startswith("!"):
+            keyword = content[0][1:]
+            if keyword in COMMAND_LIST:
+                await bot.process_commands(message)
+                return
+            else:
+                quote = await get_quote_by_key(keyword)
+                if quote:
+                    await message.channel.send(quote)
+                return
+            
+        if content[0].lower() == ("paruru,"):
+            await handle_ai_chat(message)
+            return
 
     message_images = []
     if message.attachments:
@@ -79,28 +105,10 @@ async def on_message(message):
             message.channel.id, 
             message.author.display_name, 
             message_content, 
-            is_bot=False
+            is_bot=False,
+            images=message_images,
+            videos=youtube_urls
         )
-
-    content = message.content.split()
-
-    if not content:
-        return
-
-    if content[0].startswith("!"):
-        keyword = content[0][1:]
-        if keyword in COMMAND_LIST:
-            await bot.process_commands(message)
-            return
-        else:
-            quote = await get_quote_by_key(keyword)
-            if quote:
-                await message.channel.send(quote)
-            return
-
-    if message.content.lower().startswith("paruru, "):
-        await handle_ai_chat(message)
-        return
 
 
 async def handle_ai_chat(message):
@@ -115,12 +123,41 @@ async def handle_ai_chat(message):
             history_context = ""
 
             if history_messages:
-                history_context = "\n\nRecent conversation context (last 20 messages):\n"
+                conversation_parts = [{"text": "Here's the recent conversation context:"}]
+                added_media = False
+
                 for msg in history_messages:
-                    history_context += f"{msg['author']}: {msg['content']}\n"
-                
-                history_context += f"\nCurrent message: {cleaned_content}"
-                print(f"Using {len(history_messages)} messages of context")
+                    if msg["has_media"]:
+                        if added_media:
+                            continue
+
+                        conversation_parts.append({"text": f"{msg['author']} shared media:"})
+
+                        last_media_index = next(
+                            (i for i in range(len(history_messages)-1, -1, -1) if history_messages[i]["has_media"]),
+                            None
+                        )
+
+                        for i, msg in enumerate(history_messages):
+                            if msg["has_media"]:
+                                if i != last_media_index:
+                                    continue
+
+                                conversation_parts.append({"text": f"{msg['author']} shared media:"})
+
+                                for img in msg["images"]:
+                                    conversation_parts.append(convert_pil_to_part(img)) 
+
+                                for vid in msg["videos"]:
+                                    conversation_parts.append(convert_video_to_part(vid)) 
+
+                            else:
+                                conversation_parts.append({"text": f"{msg['author']}: {msg['content']}"})
+
+                history_context = {
+                    "role": "user",
+                    "parts": conversation_parts
+                }
 
             relevant_notes = search_personal_notes(cleaned_content, n_results=2)
             notes_context = ""
@@ -141,29 +178,29 @@ async def handle_ai_chat(message):
                             if not cleaned_content.strip():
                                 cleaned_content = "What do you see in this image?"
 
-            current_youtube_urls = extract_youtube_urls(cleaned_content)
-            if current_youtube_urls:
-                print(f"Found {len(current_youtube_urls)} YouTube URLs: {current_youtube_urls}")
+            current_videos = extract_youtube_urls(cleaned_content)
+            if current_videos:
+                print(f"Found {len(current_videos)} YouTube URLs: {current_videos}")
 
 
             if len(current_images) > MAX_IMAGES:
                 print(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
                 current_images = current_images[:MAX_IMAGES - len(current_images)]
                 
-            if len(current_youtube_urls) > MAX_VIDEOS:
-                print(f"Limiting YouTube URLs from {len(current_youtube_urls)} to {MAX_VIDEOS}")
-                current_youtube_urls = current_youtube_urls[:MAX_VIDEOS - len(current_youtube_urls)]
+            if len(current_videos) > MAX_VIDEOS:
+                print(f"Limiting YouTube URLs from {len(current_videos)} to {MAX_VIDEOS}")
+                current_videos = current_videos[:MAX_VIDEOS - len(current_videos)]
 
             needs_web_search = any(
                 keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
-            ) or any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS) or len(current_youtube_urls)
+            ) or any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS) or len(current_videos)
 
             response_text = chat_with_ai(
-                cleaned_content, history_context, notes_context, needs_web_search, current_images, current_youtube_urls
+                cleaned_content, history_context, notes_context, needs_web_search, current_images, current_videos
             )
 
             print(f"Response: {response_text}")
-            add_message_to_history(message.channel.id, "Bot", response_text, is_bot=True)
+            add_message_to_history(message.channel.id, "Bot", response_text, is_bot=True, images=current_images, videos=current_videos)
 
             if len(response_text) > CHAR_LIMIT:
                 await message.channel.send("whoa that's way too much text, my brain hurts!")
