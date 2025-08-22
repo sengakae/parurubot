@@ -1,10 +1,7 @@
 import io
-import re
 
-import requests
 from google import genai
 from google.genai import types
-from PIL import Image
 
 from config import CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT, VIDEO_SUMMARY_PROMPT
 
@@ -18,16 +15,6 @@ grounding_config = types.GenerateContentConfig(
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.5-flash"
-
-
-def extract_youtube_urls(text):
-    """Extract YouTube URLs from text"""
-    youtube_pattern = r'https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/)([a-zA-Z0-9_-]+)'
-    matches = re.findall(youtube_pattern, text)
-    urls = []
-    for match in matches:
-        urls.append(f"https://www.youtube.com/watch?v={match}")
-    return urls
 
 
 def summarize_channel(messages):
@@ -64,17 +51,6 @@ def summarize_channel(messages):
     if len(text) > CHAR_LIMIT:
         text = text[: CHAR_LIMIT - 3] + "..."
     return text
-
-
-async def download_image_from_url(url):
-    """Download and return PIL Image from URL"""
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return Image.open(io.BytesIO(response.content))
-    except Exception as e:
-        print(f"Error downloading image: {e}")
-        return None
 
 
 def convert_pil_to_part(pil_image):
