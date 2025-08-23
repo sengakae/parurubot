@@ -186,7 +186,7 @@ async def handle_ai_chat(message):
 
         async with message.channel.typing():
             response_text = chat_with_ai(
-                cleaned_content, history_context, notes_context, needs_web_search, current_images, current_videos
+                cleaned_content, history_context, notes_context, True, current_images, current_videos
             )
 
         print(f"Response: {response_text}")

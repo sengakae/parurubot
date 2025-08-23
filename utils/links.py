@@ -61,7 +61,6 @@ async def collect_images_from_message(content, attachments=None):
     """Collect all images from a single message"""
     images = []
     
-    print(f"CONTENT: {content}, ATTACHMENTS: {attachments}")
     if attachments:
         images.extend(await collect_images_from_attachments(attachments))
     
