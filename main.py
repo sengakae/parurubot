@@ -107,14 +107,16 @@ async def handle_ai_chat(message):
         current_videos = []
 
         """Check current message"""
-        current_images.extend(await collect_images_from_message(message))
-        current_videos.extend(extract_youtube_urls(cleaned_content))
+        urls, stripped_text = extract_youtube_urls(cleaned_content)
+        current_videos.extend(urls)
+        current_images.extend(await collect_images_from_message(stripped_text))
 
         """Check replied message"""
         if message.reference and message.reference.resolved:
             replied_msg = message.reference.resolved or await message.channel.fetch_message(message.reference.message_id)
-            current_images.extend(await collect_images_from_message(replied_msg))
-            current_videos.extend(extract_youtube_urls(replied_msg.content))    
+            urls, stripped_text = extract_youtube_urls(replied_msg.content)
+            current_videos.extend(urls)    
+            current_images.extend(await collect_images_from_message(stripped_text, replied_msg.attachments))
 
         if current_images:
             print(f"Found {len(current_images)} images")
