@@ -76,10 +76,11 @@ async def on_message(message):
             await handle_ai_chat(message)
             return
 
-    message_images = await collect_images_from_message(message)
-    youtube_urls = extract_youtube_urls(message.content)
-
     message_content = message.content
+
+    youtube_urls, stripped_text = extract_youtube_urls(message_content)
+    message_images = await collect_images_from_message(stripped_text)
+
     if message_images:
         message_content += f" [sent {len(message_images)} image(s)]"
     if youtube_urls:
