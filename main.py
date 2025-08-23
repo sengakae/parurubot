@@ -79,7 +79,7 @@ async def on_message(message):
     message_content = message.content
 
     youtube_urls, stripped_text = extract_youtube_urls(message_content)
-    message_images = await collect_images_from_message(stripped_text)
+    message_images = await collect_images_from_message(stripped_text, message.attachments)
 
     if message_images:
         message_content += f" [sent {len(message_images)} image(s)]"
