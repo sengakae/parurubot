@@ -57,23 +57,43 @@ async def collect_images_from_links(content):
     return images
 
 
-async def collect_images_from_message(message):
+async def collect_images_from_message(content, attachments=None):
     """Collect all images from a single message"""
     images = []
     
-    if message.attachments:
-        images.extend(await collect_images_from_attachments(message.attachments))
+    print(f"CONTENT: {content}, ATTACHMENTS: {attachments}")
+    if attachments:
+        images.extend(await collect_images_from_attachments(attachments))
     
-    images.extend(await collect_images_from_links(message.content))
+    images.extend(await collect_images_from_links(content))
     
     return images
 
 
-def extract_youtube_urls(text):
-    """Extract YouTube URLs from text"""
-    if not text or 'youtube' not in text.lower() and 'youtu.be' not in text.lower():
-        return []
-    
-    youtube_pattern = r'https?://(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/v/)([a-zA-Z0-9_-]+)'
+def extract_youtube_urls(text: str):
+    """Extract YouTube URLs from text and return (urls, stripped_text)."""
+    if not text:
+        return [], text
+
+    youtube_pattern = r'(https?://(?:www\.)?(?:youtube\.com/watch\?v=[\w-]+|youtu\.be/[\w-]+|youtube\.com/embed/[\w-]+|youtube\.com/v/[\w-]+))'
+
     matches = re.findall(youtube_pattern, text)
-    return [f"https://www.youtube.com/watch?v={match}" for match in matches]
+    urls = []
+
+    for match in matches:
+        video_id = None
+        if "youtu.be/" in match:
+            video_id = match.split("/")[-1]
+        elif "watch?v=" in match:
+            video_id = match.split("watch?v=")[-1].split("&")[0]
+        elif "embed/" in match:
+            video_id = match.split("embed/")[-1]
+        elif "/v/" in match:
+            video_id = match.split("/v/")[-1]
+
+        if video_id:
+            urls.append(f"https://www.youtube.com/watch?v={video_id}")
+
+    stripped_text = re.sub(youtube_pattern, "", text).strip()
+
+    return urls, stripped_text
