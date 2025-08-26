@@ -5,3 +5,4 @@ pandas
 requests
 python-dotenv
 sentence-transformers
+asyncpg
