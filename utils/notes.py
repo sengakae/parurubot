@@ -220,17 +220,9 @@ def search_personal_notes(query, n_results=3):
 
         if results["documents"] and results["documents"][0]:
             relevant_info = []
-            for doc, metadata in zip(results["documents"][0], results["metadatas"][0]):
-                source_file = metadata["source"]
-                file_type = metadata.get("type", "unknown")
-
+            for doc, _ in zip(results["documents"][0], results["metadatas"][0]):
                 preview = doc[:400] + "..." if len(doc) > 400 else doc
-                if file_type == "csv":
-                    relevant_info.append(f"From CSV {source_file}:\n{preview}")
-                elif file_type == "json":
-                    relevant_info.append(f"From JSON {source_file}:\n{preview}")
-                else:
-                    relevant_info.append(f"From {source_file}: {preview}")
+                relevant_info.append(preview)
             return "\n\n".join(relevant_info)
         return None
     except:
