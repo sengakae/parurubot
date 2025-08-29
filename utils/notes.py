@@ -1,10 +1,13 @@
 import hashlib
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
 
 from utils.chroma_client import collection
+
+logger = logging.getLogger(__name__)
 
 
 def file_hash(path: Path) -> str:
@@ -29,14 +32,14 @@ def cleanup_deleted_files():
     """Remove chunks from vector DB for files that no longer exist in the notes folder"""
     notes_folder = Path("./notes")
     if not notes_folder.exists():
-        print("Notes folder doesn't exist, skipping cleanup")
+        logger.info("Notes folder doesn't exist, skipping cleanup")
         return
     
     try:
         results = collection.get()
         
         if not results["metadatas"]:
-            print("No documents in vector DB to clean up")
+            logger.info("No documents in vector DB to clean up")
             return
         
         current_files = set()
@@ -56,33 +59,33 @@ def cleanup_deleted_files():
         
         if chunks_to_remove:
             collection.delete(ids=chunks_to_remove)
-            print(f"Cleanup: Removed {len(chunks_to_remove)} chunks from {len(deleted_sources)} deleted files:")
+            logger.info(f"Cleanup: Removed {len(chunks_to_remove)} chunks from {len(deleted_sources)} deleted files:")
             for source in sorted(deleted_sources):
-                print(f"   - {source}")
+                logger.info(f"   - {source}")
         else:
-            print("No orphaned chunks found during cleanup")
+            logger.info("No orphaned chunks found during cleanup")
             
     except Exception as e:
-        print(f"Error during cleanup: {e}")
+        logger.exception(f"Error during cleanup: {e}")
 
 
 def load_personal_notes():
     """Load all .txt files from a 'notes' folder into the vector database"""
     notes_folder = Path("./notes")
     if not notes_folder.exists():
-        print("No notes folder found - create ./notes/ and add .txt files")
+        logger.info("No notes folder found - create ./notes/ and add .txt files")
         return
     
-    print("Checking for deleted files...")
+    logger.info("Checking for deleted files...")
     cleanup_deleted_files()
 
-    print("Looking for .txt files...")
+    logger.info("Looking for .txt files...")
     for note_file in notes_folder.rglob("*.txt"):
-        print("Found .txt:", note_file)
+        logger.info("Found .txt:", note_file)
         try:
             fhash = file_hash(note_file)
             if already_ingested(note_file, fhash):
-                print(f"Skipping {note_file} (no changes)")
+                logger.info(f"Skipping {note_file} (no changes)")
                 continue
 
             with open(note_file, "r", encoding="utf-8") as file:
@@ -104,17 +107,17 @@ def load_personal_notes():
                     }],
                 )
 
-            print(f"Loaded {relative_path} ({len(chunks)} chunks)")
+            logger.info(f"Loaded {relative_path} ({len(chunks)} chunks)")
         except Exception as e:
-            print(f"Error loading {note_file.name}: {e}")
+            logger.exception(f"Error loading {note_file.name}: {e}")
 
-    print("Looking for .csv files...")
+    logger.info("Looking for .csv files...")
     for csv_file in notes_folder.rglob("*.csv"):
-        print("Found .csv:", csv_file)
+        logger.info("Found .csv:", csv_file)
         try:
             fhash = file_hash(csv_file)
             if already_ingested(csv_file, fhash):
-                print(f"Skipping {csv_file} (no changes)")
+                logger.info(f"Skipping {csv_file} (no changes)")
                 continue
 
             df = pd.read_csv(csv_file)
@@ -153,20 +156,20 @@ def load_personal_notes():
                     }],
                 )
 
-            print(
+            logger.info(
                 f"Loaded CSV {relative_path} ({len(df)} rows → {len(grouped_chunks)} chunks)"
             )
 
         except Exception as e:
-            print(f"Error loading CSV {csv_file}: {e}")
+            logger.exception(f"Error loading CSV {csv_file}: {e}")
 
-    print("Looking for .json files...")
+    logger.info("Looking for .json files...")
     for json_file in notes_folder.rglob("*.json"):
-        print("Found .json:", json_file)
+        logger.info("Found .json:", json_file)
         try:
             fhash = file_hash(json_file)
             if already_ingested(json_file, fhash):
-                print(f"Skipping {json_file} (no changes)")
+                logger.info(f"Skipping {json_file} (no changes)")
                 continue
 
             with open(json_file, "r", encoding="utf-8") as f:
@@ -208,9 +211,9 @@ def load_personal_notes():
                     }],
                 )
 
-            print(f"Loaded JSON {relative_path} ({len(content_chunks)} entries → {len(grouped_chunks)} chunks)")
+            logger.info(f"Loaded JSON {relative_path} ({len(content_chunks)} entries → {len(grouped_chunks)} chunks)")
         except Exception as e:
-            print(f"Error loading JSON {json_file}: {e}")
+            logger.exception(f"Error loading JSON {json_file}: {e}")
 
 
 def search_personal_notes(query, n_results=3):

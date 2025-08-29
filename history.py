@@ -1,6 +1,9 @@
+import logging
 from collections import defaultdict, deque
 
 from config import MAX_HISTORY
+
+logger = logging.getLogger(__name__)
 
 channel_history = defaultdict(lambda: deque(maxlen=MAX_HISTORY))
 
@@ -27,7 +30,7 @@ def add_message_to_history(channel_id, author, content, is_bot=False, images=Non
     if videos:
         media_info.append(f"{len(videos)} video(s)")
 
-    print(f"Message ({len(channel_history[channel_id])}/{MAX_HISTORY}): {channel_id} - {author}, {media_info}")
+    logger.info(f"Message ({len(channel_history[channel_id])}/{MAX_HISTORY}): {channel_id} - {author}, {media_info}")
 
 
 def get_channel_history(channel_id, include_media=False):

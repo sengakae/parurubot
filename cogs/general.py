@@ -1,6 +1,10 @@
+import logging
+
 from discord.ext import commands
 
 from utils.ai import summarize_channel
+
+logger = logging.getLogger(__name__)
 
 
 class GeneralCog(commands.Cog):
@@ -46,9 +50,10 @@ class GeneralCog(commands.Cog):
             )
 
         except Exception as e:
-            print(f"Error generating summary: {e}")
+            logger.exception(f"Error generating summary: {e}")
             await ctx.send("Oops, something went wrong while generating the summary")
 
 
 async def setup(bot):
+    await bot.add_cog(GeneralCog(bot))
     await bot.add_cog(GeneralCog(bot))
