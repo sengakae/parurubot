@@ -1,9 +1,12 @@
 import io
+import logging
 
 from google import genai
 from google.genai import types
 
 from config import CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT, VIDEO_SUMMARY_PROMPT
+
+logger = logging.getLogger(__name__)
 
 grounding_tool = types.Tool(
     google_search=types.GoogleSearch()
@@ -89,10 +92,10 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     system_message = f"{SYSTEM_PROMPT}{notes_context}"
 
     if images:
-        print(f"Processing {len(images)} images")
+        logger.info(f"Processing {len(images)} images")
 
     if videos:
-        print(f"Processing {len(videos)} YouTube videos")
+        logger.info(f"Processing {len(videos)} YouTube videos")
         system_message = VIDEO_SUMMARY_PROMPT
 
     conversation = []
@@ -124,7 +127,7 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     })
 
     if needs_web_search:
-        print("Using web search model for current information")
+        logger.info("Using web search model for current information")
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         config = types.GenerateContentConfig(tools=[grounding_tool])
 
@@ -134,7 +137,7 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
             config=config
         )
     else:
-        print("Using regular model for conversation")
+        logger.info("Using regular model for conversation")
 
         response = client.models.generate_content(
             model=MODEL,
@@ -144,7 +147,7 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     text = response.text or "No response generated."
 
     if len(text) > CHAR_LIMIT:
-        print(f"Response too long ({len(text)} chars), truncating to {CHAR_LIMIT}")
+        logger.info(f"Response too long ({len(text)} chars), truncating to {CHAR_LIMIT}")
         truncated = text[: CHAR_LIMIT - 3]
         last_punct = max(truncated.rfind("."), truncated.rfind("!"), truncated.rfind("?"))
         if last_punct > CHAR_LIMIT * 0.8:

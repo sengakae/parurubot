@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import os
+import sys
 from pathlib import Path
 
 import discord
@@ -12,6 +14,13 @@ from history import add_message_to_history, get_channel_history
 from utils.ai import chat_with_ai, convert_pil_to_part, convert_video_to_part
 from utils.links import collect_images_from_message, extract_youtube_urls
 from utils.notes import load_personal_notes, search_personal_notes
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger("parurubot")
 
 load_dotenv()
 
@@ -29,13 +38,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     """Called when the bot is ready and connected"""
-    print(f"Logged in as {bot.user}")
+    logger.info(f"Logged in as {bot.user}")
 
     try:
         await init_db()
-        print("DB connected successfully and pool initialized")
+        logger.info("DB connected successfully and pool initialized")
     except Exception as e:
-        print(f"Failed to connect to DB: {e}")
+        logger.exception(f"Failed to connect to DB: {e}")
         import sys
 
         sys.exit(1)
@@ -45,9 +54,9 @@ async def on_ready():
 
     server_count = len(bot.guilds)
     for server in bot.guilds:
-        print(f"- {server.id} (name: {server.name})")
+        logger.info(f"- {server.id} (name: {server.name})")
 
-    print(f"ParuruBot is in {server_count} server(s).")
+    logger.info(f"ParuruBot is in {server_count} server(s).")
 
 
 @bot.event
@@ -120,17 +129,17 @@ async def handle_ai_chat(message):
             current_images.extend(await collect_images_from_message(stripped_text, replied_msg.attachments))
 
         if current_images:
-            print(f"Found {len(current_images)} images")
+            logger.info(f"Found {len(current_images)} images")
 
         if current_videos:
-            print(f"Found {len(current_videos)} YouTube URLs: {current_videos}")
+            logger.info(f"Found {len(current_videos)} YouTube URLs: {current_videos}")
 
         if len(current_images) > MAX_IMAGES:
-            print(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
+            logger.info(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
             current_images = current_images[:MAX_IMAGES - len(current_images)]
             
         if len(current_videos) > MAX_VIDEOS:
-            print(f"Limiting YouTube URLs from {len(current_videos)} to {MAX_VIDEOS}")
+            logger.info(f"Limiting YouTube URLs from {len(current_videos)} to {MAX_VIDEOS}")
             current_videos = current_videos[:MAX_VIDEOS - len(current_videos)]
         
         history_messages = get_channel_history(channel_id, include_media=True)
@@ -179,7 +188,7 @@ async def handle_ai_chat(message):
             notes_context = (
                 f"\n\nRelevant information from your personal notes:\n{relevant_notes}"
             )
-            print("Found relevant notes for this query")
+            logger.info("Found relevant notes for this query")
 
         needs_web_search = any(
             keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
@@ -190,7 +199,7 @@ async def handle_ai_chat(message):
                 cleaned_content, history_context, notes_context, needs_web_search, current_images, current_videos
             )
 
-        print(f"Response: {response_text}")
+        logger.info(f"Response: {response_text}")
         add_message_to_history(message.channel.id, "Bot", response_text, is_bot=True, images=current_images, videos=current_videos)
 
         if len(response_text) > CHAR_LIMIT:
@@ -199,7 +208,7 @@ async def handle_ai_chat(message):
             await message.channel.send(response_text)
 
     except Exception as e:
-        print(f"Error generating response: {e}")
+        logger.exception(f"Error generating response: {e}")
         await message.channel.send("oops, something broke, gimme a sec...")
 
 
@@ -215,15 +224,15 @@ async def load_cogs():
         extension_name = f"cogs.{cog_file.stem}"
         try:
             await bot.load_extension(extension_name)
-            print(f"Loaded {extension_name}")
+            logger.info(f"Loaded {extension_name}")
             loaded_cogs += 1
         except Exception as e:
-            print(f"Failed to load {extension_name}: {e}")
+            logger.exception(f"Failed to load {extension_name}: {e}")
             failed_cogs += 1
 
-    print(f"\nCog loading complete: {loaded_cogs} loaded, {failed_cogs} failed")
+    logger.info(f"\nCog loading complete: {loaded_cogs} loaded, {failed_cogs} failed")
     if loaded_cogs > 0:
-        print(f"Active cogs: {', '.join(bot.cogs.keys())}")
+        logger.info(f"Active cogs: {', '.join(bot.cogs.keys())}")
 
 
 async def main():
@@ -236,4 +245,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("ParuruBot killed by user.")
+        logger.exception("ParuruBot killed by user.")

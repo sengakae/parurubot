@@ -1,8 +1,11 @@
 import io
+import logging
 import re
 
 import aiohttp
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 
 def extract_links(text: str):
@@ -19,12 +22,12 @@ async def download_image_from_url(url: str):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    print(f"Failed to fetch {url}, status {resp.status}")
+                    logger.info(f"Failed to fetch {url}, status {resp.status}")
                     return None
 
                 content_type = resp.headers.get("Content-Type", "")
                 if not content_type.startswith("image/"):
-                    print(f"URL is not an image: {url} (Content-Type: {content_type})")
+                    logger.info(f"URL is not an image: {url} (Content-Type: {content_type})")
                     return None
 
                 data = await resp.read()
@@ -32,7 +35,7 @@ async def download_image_from_url(url: str):
                 return image
 
     except Exception as e:
-        print(f"Error downloading image from {url}: {e}")
+        logger.exception(f"Error downloading image from {url}: {e}")
         return None
 
 
