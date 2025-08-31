@@ -190,10 +190,6 @@ async def handle_ai_chat(message):
             )
             logger.info("Found relevant notes for this query")
 
-        needs_web_search = any(
-            keyword in cleaned_content.lower() for keyword in WEB_SEARCH_KEYWORDS
-        ) or any(indicator in cleaned_content.lower() for indicator in TIME_INDICATORS) or len(current_videos)
-
         async with message.channel.typing():
             response_text = chat_with_ai(
                 cleaned_content, history_context, notes_context, True, current_images, current_videos
