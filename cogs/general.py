@@ -1,4 +1,6 @@
 import logging
+import re
+from datetime import datetime, timedelta, timezone
 
 from discord.ext import commands
 
@@ -17,20 +19,45 @@ class GeneralCog(commands.Cog):
         await ctx.channel.purge(limit=lines)
 
     @commands.command(name="summary", help="Generate AI summary of last 500 messages")
-    async def summary(self, ctx):
+    async def summary(self, ctx, arg: str = None):
         try:
             if not ctx.channel.permissions_for(ctx.author).read_message_history:
                 await ctx.send(
                     "You don't have permission to read message history in this channel"
                 )
                 return
+            
+            # Defaults
+            limit = 100
+            duration = None
+            after = None
 
-            await ctx.send(
-                "Analyzing the last 500 messages... this might take a moment"
-            )
+            if arg:
+                match = re.match(r"^(\d+)([hd])$", arg)
+                if match:
+                    duration = int(match.group(1))
+                    unit = match.group(2)
+
+                    now = datetime.now(timezone.utc)
+                    if unit == "h":
+                        after = now - timedelta(hours=duration)
+                        prompt = f"Analyzing messages from the last {duration} hours..."
+                    else:
+                        after = now - timedelta(days=duration)
+                        prompt = f"Analyzing messages from the last {duration} days..."
+
+                    limit = 500
+                else:
+                    # Limit max 500
+                    limit = max(10, min(int(arg), 500))
+                    prompt = f"Analyzing the last {limit} messages..."
+            else:
+                prompt = f"Analyzing the last {limit} messages..."
+
+            await ctx.send(prompt)
 
             messages = []
-            async for message in ctx.channel.history(limit=500):
+            async for message in ctx.channel.history(limit=limit, after=after):
                 if message.author != self.bot.user and message.content.strip():
                     messages.append(
                         {
@@ -55,5 +82,4 @@ class GeneralCog(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(GeneralCog(bot))
     await bot.add_cog(GeneralCog(bot))
