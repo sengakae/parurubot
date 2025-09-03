@@ -27,7 +27,7 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 MAX_IMAGES = 10
-MAX_VIDEOS = 5
+MAX_VIDEOS = 1
 
 intents = discord.Intents.default()
 intents.message_content = True
