@@ -81,7 +81,7 @@ def load_personal_notes():
 
     logger.info("Looking for .txt files...")
     for note_file in notes_folder.rglob("*.txt"):
-        logger.info("Found .txt:", note_file)
+        logger.info("Found .txt: %s", note_file)
         try:
             fhash = file_hash(note_file)
             if already_ingested(note_file, fhash):
@@ -113,7 +113,7 @@ def load_personal_notes():
 
     logger.info("Looking for .csv files...")
     for csv_file in notes_folder.rglob("*.csv"):
-        logger.info("Found .csv:", csv_file)
+        logger.info("Found .csv: %s", csv_file)
         try:
             fhash = file_hash(csv_file)
             if already_ingested(csv_file, fhash):
@@ -165,7 +165,7 @@ def load_personal_notes():
 
     logger.info("Looking for .json files...")
     for json_file in notes_folder.rglob("*.json"):
-        logger.info("Found .json:", json_file)
+        logger.info("Found .json: %s", json_file)
         try:
             fhash = file_hash(json_file)
             if already_ingested(json_file, fhash):

@@ -177,7 +177,10 @@ async def handle_ai_chat(message):
 
                         else:
                             conversation_parts.append({"text": f"{msg['author']}: {msg['content']}"})
-
+                
+                else:
+                    conversation_parts.append({"text": f"{msg['author']}: {msg['content']}"})
+                    
             history_context = {
                 "role": "user",
                 "parts": conversation_parts
@@ -256,4 +259,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.exception("ParuruBot killed by user.")
+        logger.info("ParuruBot killed by user.")
