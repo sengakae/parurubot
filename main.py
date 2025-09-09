@@ -28,6 +28,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 MAX_IMAGES = 10
 MAX_VIDEOS = 1
+AI_TIMEOUT = 30
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -191,9 +192,23 @@ async def handle_ai_chat(message):
             logger.info("Found relevant notes for this query")
 
         async with message.channel.typing():
-            response_text = chat_with_ai(
-                cleaned_content, history_context, notes_context, True, current_images, current_videos
-            )
+            try:
+                response_text = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        chat_with_ai,
+                        cleaned_content, 
+                        history_context, 
+                        notes_context, 
+                        True, 
+                        current_images, 
+                        current_videos
+                    ),
+                    timeout=AI_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logger.warning("AI response timed out")
+                await message.channel.send("that took too much thinking, gonna take a nap...")
+                return
 
         logger.info(f"Response: {response_text}")
         add_message_to_history(message.channel.id, "Bot", response_text, is_bot=True, images=current_images, videos=current_videos)
