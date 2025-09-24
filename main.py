@@ -141,7 +141,7 @@ async def handle_ai_chat(message):
             
         if len(current_videos) > MAX_VIDEOS:
             logger.info(f"Limiting YouTube URLs from {len(current_videos)} to {MAX_VIDEOS}")
-            current_videos = current_videos[:MAX_VIDEOS - len(current_videos)]
+            current_videos = current_videos[:MAX_VIDEOS]
         
         history_messages = get_channel_history(channel_id, include_media=True)
         history_context = ""
