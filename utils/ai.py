@@ -104,6 +104,11 @@ def chat_with_ai(
 
     conversation.append({"role": "user", "parts": current_prompt})
 
+    contents = [
+        {"role": "system", "parts": [{"text": system_message}]},
+        *conversation,
+    ]
+
     if needs_web_search:
         logger.info("Using web search model for current information")
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
@@ -111,15 +116,14 @@ def chat_with_ai(
 
         response = client.models.generate_content(
             model=MODEL,
-            contents=conversation,
-            system_instruction=system_message,
+            contents=contents,
             config=config,
         )
     else:
         logger.info("Using regular model for conversation")
 
         response = client.models.generate_content(
-            model=MODEL, contents=conversation, system_instruction=system_message
+            model=MODEL, contents=contents
         )
 
     text = response.text or "No response generated."
