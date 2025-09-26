@@ -8,13 +8,9 @@ from config import CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT, VIDEO_SUMMARY_PROM
 
 logger = logging.getLogger(__name__)
 
-grounding_tool = types.Tool(
-    google_search=types.GoogleSearch()
-)
+grounding_tool = types.Tool(google_search=types.GoogleSearch())
 
-grounding_config = types.GenerateContentConfig(
-    tools=[grounding_tool]
-)
+grounding_config = types.GenerateContentConfig(tools=[grounding_tool])
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.0-flash"
@@ -45,10 +41,7 @@ def summarize_channel(messages):
         f"Here's the conversation:\n\n{conversation_text}"
     )
 
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=summary_prompt
-    )
+    response = client.models.generate_content(model=MODEL, contents=summary_prompt)
     text = response.text or "No summary generated."
 
     if len(text) > CHAR_LIMIT:
@@ -58,32 +51,29 @@ def summarize_channel(messages):
 
 def convert_pil_to_part(pil_image):
     """Convert PIL Image to a Google GenAI Part object."""
-    if pil_image.mode in ('RGBA', 'P'):
-        pil_image = pil_image.convert('RGB')
+    if pil_image.mode in ("RGBA", "P"):
+        pil_image = pil_image.convert("RGB")
 
     img_byte_arr = io.BytesIO()
-    pil_image.save(img_byte_arr, format='JPEG')
+    pil_image.save(img_byte_arr, format="JPEG")
     img_byte_arr.seek(0)
-    
-    return {
-        'inline_data': {
-            'mime_type': 'image/jpeg',
-            'data': img_byte_arr.getvalue()
-        }
-    }
+
+    return {"inline_data": {"mime_type": "image/jpeg", "data": img_byte_arr.getvalue()}}
 
 
 def convert_video_to_part(url):
     """Create a part for YouTube video content"""
-    return {
-        'file_data': {
-            'mime_type': 'video/*',
-            'fileUri': url
-        }
-    }
+    return {"file_data": {"mime_type": "video/*", "fileUri": url}}
 
 
-def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_web_search=False, images=None, videos=None):
+def chat_with_ai(
+    cleaned_content,
+    history_context="",
+    notes_context="",
+    needs_web_search=False,
+    images=None,
+    videos=None,
+):
     """
     Generate a response from the AI given user input, optional history, and notes.
     Handles both regular and web-search style prompts.
@@ -99,15 +89,6 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
         system_message = VIDEO_SUMMARY_PROMPT
 
     conversation = []
-    conversation.append({
-        "role": "user",
-        "parts": [{"text": system_message}]
-    })
-
-    conversation.append({
-        "role": "model", 
-        "parts": [{"text": "got it! i'll be casual and friendly in our chats"}]
-    })
 
     if history_context:
         conversation.append(history_context)
@@ -115,16 +96,13 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
     current_prompt = [{"text": cleaned_content}]
     if images:
         for img in images:
-            current_prompt.append(convert_pil_to_part(img)) 
+            current_prompt.append(convert_pil_to_part(img))
 
     if videos:
         for url in videos:
             current_prompt.append(convert_video_to_part(url))
-    
-    conversation.append({
-        "role": "user",
-        "parts": current_prompt
-    })
+
+    conversation.append({"role": "user", "parts": current_prompt})
 
     if needs_web_search:
         logger.info("Using web search model for current information")
@@ -134,22 +112,26 @@ def chat_with_ai(cleaned_content, history_context="", notes_context="", needs_we
         response = client.models.generate_content(
             model=MODEL,
             contents=conversation,
-            config=config
+            system_instruction=system_message,
+            config=config,
         )
     else:
         logger.info("Using regular model for conversation")
 
         response = client.models.generate_content(
-            model=MODEL,
-            contents=conversation
+            model=MODEL, contents=conversation, system_instruction=system_message
         )
 
     text = response.text or "No response generated."
 
     if len(text) > CHAR_LIMIT:
-        logger.info(f"Response too long ({len(text)} chars), truncating to {CHAR_LIMIT}")
+        logger.info(
+            f"Response too long ({len(text)} chars), truncating to {CHAR_LIMIT}"
+        )
         truncated = text[: CHAR_LIMIT - 3]
-        last_punct = max(truncated.rfind("."), truncated.rfind("!"), truncated.rfind("?"))
+        last_punct = max(
+            truncated.rfind("."), truncated.rfind("!"), truncated.rfind("?")
+        )
         if last_punct > CHAR_LIMIT * 0.8:
             text = truncated[: last_punct + 1]
         else:
