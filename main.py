@@ -28,7 +28,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 MAX_IMAGES = 10
 MAX_VIDEOS = 1
-AI_TIMEOUT = 60
+AI_TIMEOUT = 180
 
 intents = discord.Intents.default()
 intents.message_content = True
