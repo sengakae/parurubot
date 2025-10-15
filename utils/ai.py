@@ -13,7 +13,7 @@ grounding_tool = types.Tool(google_search=types.GoogleSearch())
 grounding_config = types.GenerateContentConfig(tools=[grounding_tool])
 
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-2.5-flash"
 
 
 def summarize_channel(messages):
