@@ -26,6 +26,7 @@ class GeneralCog(commands.Cog):
             return
 
         history.reset_history(ctx.channel.id)
+        logger.info("Channel history cleared.")
         await ctx.send(f"Cleared stored history for this channel ({ctx.channel.name}).")
 
     @commands.command(name="summary", help="Generate AI summary of last 500 messages")
