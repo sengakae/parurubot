@@ -19,14 +19,10 @@ class GeneralCog(commands.Cog):
         lines = min(int(number), 100)
         await ctx.channel.purge(limit=lines)
 
-    @commands.command(name="clear", help="Clears stored AI history for this channel or all channels. Usage: !clear [all]")
+    @commands.command(name="clear", help="Clears stored AI history for this channel or all channels. Usage: !clear")
     async def clear(self, ctx):
         if ctx.guild is None:
             await ctx.send("This command can only be used in a server.")
-            return
-
-        if not ctx.author.guild_permissions.manage_messages:
-            await ctx.send("You need the Manage Messages permission to clear stored history.")
             return
 
         history.reset_history(ctx.channel.id)
