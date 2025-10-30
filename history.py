@@ -49,3 +49,23 @@ def get_channel_history(channel_id, include_media=False):
                 'is_bot': msg.get('is_bot', False)
             })
         return text_only
+
+
+def reset_history(channel_id=None):
+    """Reset history to its initial empty state.
+
+    If channel_id is provided, only that channel's history is cleared.
+    Otherwise all stored channel histories are removed.
+    """
+    if channel_id is None:
+        channel_history.clear()
+        logger.info("Cleared all channel histories")
+    else:
+        if channel_id in channel_history:
+            try:
+                del channel_history[channel_id]
+            except Exception:
+                channel_history.pop(channel_id, None)
+            logger.info(f"Cleared history for channel {channel_id}")
+        else:
+            logger.info(f"No history to clear for channel {channel_id}")

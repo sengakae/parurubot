@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from discord.ext import commands
 
+import history
 from utils.ai import summarize_channel
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,19 @@ class GeneralCog(commands.Cog):
         lines = min(int(number), 100)
         await ctx.channel.purge(limit=lines)
 
+    @commands.command(name="clear", help="Clears stored AI history for this channel or all channels. Usage: !clear [all]")
+    async def clear(self, ctx):
+        if ctx.guild is None:
+            await ctx.send("This command can only be used in a server.")
+            return
+
+        if not ctx.author.guild_permissions.manage_messages:
+            await ctx.send("You need the Manage Messages permission to clear stored history.")
+            return
+
+        history.reset_history(ctx.channel.id)
+        await ctx.send(f"Cleared stored history for this channel ({ctx.channel.name}).")
+
     @commands.command(name="summary", help="Generate AI summary of last 500 messages")
     async def summary(self, ctx, arg: str = None):
         try:
@@ -27,7 +41,6 @@ class GeneralCog(commands.Cog):
                 )
                 return
             
-            # Defaults
             limit = 100
             duration = None
             after = None
@@ -48,7 +61,6 @@ class GeneralCog(commands.Cog):
 
                     limit = 500
                 else:
-                    # Limit max 500
                     limit = max(10, min(int(arg), 500))
                     prompt = f"Analyzing the last {limit} messages..."
             else:
