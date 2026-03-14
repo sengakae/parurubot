@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -19,7 +20,7 @@ class GeneralCog(commands.Cog):
         lines = min(int(number), 100)
         await ctx.channel.purge(limit=lines)
 
-    @commands.command(name="clear", help="Clears stored AI history for this channel. Usage: !clear")
+    @commands.command(name="clear", help="Clears stored AI history for this channel")
     async def clear(self, ctx):
         if ctx.guild is None:
             await ctx.send("This command can only be used in a server.")
@@ -95,11 +96,20 @@ class GeneralCog(commands.Cog):
         Generates a language quiz.
         
         Parameters:
-        level: The level you want to study (e.g., n1-n5 or topik1-6)
+        level: The level you want to study (e.g., n1-n5, topik1-6, or hsk1-9)
         category: The type of question (vocab, grammar, or reading)
         """
         level = level.lower()
         category = category.lower()
+
+        valid_levels = [
+            'n1', 'n2', 'n3', 'n4', 'n5', 
+            'topik1', 'topik2', 'topik3', 'topik4', 'topik5', 'topik6',
+            'hsk1', 'hsk2', 'hsk3', 'hsk4', 'hsk5', 'hsk6', 'hsk7', 'hsk8', 'hsk9'
+        ]
+        
+        if level not in valid_levels:
+            return await ctx.send(f"**{level}** is not a valid level. Please use N1-5, TOPIK1-6, or HSK1-9.")
         
         emoji_map = {"A": "🇦", "B": "🇧", "C": "🇨", "D": "🇩"}
         reverse_map = {v: k for k, v in emoji_map.items()}
@@ -107,7 +117,7 @@ class GeneralCog(commands.Cog):
         loading_msg = await ctx.send(f"Generating a **{level.upper()} {category}** question...")
 
         try:
-            q_data = generate_quiz_question(level, category)
+            q_data = await asyncio.to_thread(generate_quiz_question, level, category)
 
             quiz_text = (
                 f"**{level.upper()} {category.capitalize()} Quiz**\n"
@@ -116,7 +126,6 @@ class GeneralCog(commands.Cog):
                 f"**B)** {q_data['options']['B']}\n"
                 f"**C)** {q_data['options']['C']}\n"
                 f"**D)** {q_data['options']['D']}\n\n"
-                f"*React with the correct letter!*"
             )
             
             await loading_msg.edit(content=quiz_text)
@@ -141,7 +150,7 @@ class GeneralCog(commands.Cog):
 
                 await ctx.send(f"{ctx.author.mention} {result_msg}\n> {q_data['explanation']}")
 
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 await ctx.send(f"{ctx.author.mention}, time's up! The answer was **{q_data['correct']}**.")
 
         except Exception as e:

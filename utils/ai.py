@@ -146,13 +146,15 @@ def chat_with_ai(
 
 def generate_quiz_question(level: str, category: str):
     """
-    Generates a JLPT/TOPIK question using Gemini.
+    Generates a JLPT/TOPIK/HSK question using Gemini.
     Returns a dict with: question, options (dict), correct (char), explanation.
     """
     
     system_instruction = (
-        "You are an expert language tutor for JLPT and TOPIK. "
+        "You are an expert language tutor for JLPT, TOPIK, and HSK. "
         "Your task is to provide a multiple-choice question in JSON format. "
+        "The question and options should be in the target language (Japanese, Korean, or Chinese), "
+        "but the 'explanation' field MUST always be written in English. "
         "The JSON must strictly follow this schema:\n"
         "{\n"
         "  'question': 'string',\n"
