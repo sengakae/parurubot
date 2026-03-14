@@ -9,7 +9,8 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 - **Context Awareness**: Remembers the last 20 messages in each channel for contextual responses
 - **Personal Notes Integration**: Searches through your personal notes to provide relevant information
 - **Smart Response Types**: Automatically detects when to provide current information vs. conversational responses
-- **Image Attachment**: Detects when you attach an image, parses it, and sends it to Gemini AI for analysis or conversation
+- **Image Analysis**: Attach images to your messages for AI-powered analysis and description
+- **YouTube Integration**: Share YouTube videos for AI discussion and analysis
 
 ### Personal Notes Management
 - **Vector Database**: Automatically loads and indexes `.txt`, `.csv`, and `.json` files from the `notes/` folder
@@ -99,7 +100,8 @@ discord-bot/
 - **`!rm [keyword]`** - Remove a quote by keyword
 - **`!showquotes`** - List all quote keywords
 - **`!rquote`** - Display a random saved quote
-- **`![keyword]`** - Display a specific quote by keyword
+- **`!quote [keyword]`** - Display a specific quote by keyword
+- **`![keyword]`** - Shortcut to display a specific quote by keyword
 
 ### Utility Commands
 - **`!purge [number]`** - Delete the last N messages (max 100) [Requires admin permissions]
@@ -111,7 +113,13 @@ discord-bot/
   - **Flat stats**: `[num]atk`, `[num]def`, `[num]hp`
 
 ### History & Analysis
-- **`!summary`** - Generate AI summary of last 500 messages
+- **`!summary [number|duration]`** - Generate AI summary of last N messages or messages from last X hours/days (e.g., `!summary 50`, `!summary 2h`, `!summary 1d`)
+- **`!clear`** - Clear stored AI history for the current channel
+
+### Language Learning Quiz
+- **`!v [level] [category]`** - Generate a language quiz question
+  - **Levels**: N1-N5 (JLPT), TOPIK1-6, HSK1-9
+  - **Categories**: vocab, grammar, reading
 
 ## Configuration
 
