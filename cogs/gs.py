@@ -7,7 +7,7 @@ class GSCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="gs", help="calculates e7 gear score")
+    @commands.command(name="gs", help="Calculates E7 gear score")
     async def gs(self, ctx, *, values):
         stats = values.split()
         gear_score = 0
