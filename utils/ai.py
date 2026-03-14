@@ -1,5 +1,7 @@
 import io
+import json
 import logging
+import re
 
 from google import genai
 from google.genai import types
@@ -140,3 +142,53 @@ def chat_with_ai(
             text = truncated + "..."
 
     return text
+
+
+def generate_quiz_question(level: str, category: str):
+    """
+    Generates a JLPT/TOPIK question using Gemini.
+    Returns a dict with: question, options (dict), correct (char), explanation.
+    """
+    
+    system_instruction = (
+        "You are an expert language tutor for JLPT and TOPIK. "
+        "Your task is to provide a multiple-choice question in JSON format. "
+        "The JSON must strictly follow this schema:\n"
+        "{\n"
+        "  'question': 'string',\n"
+        "  'options': {'A': 'string', 'B': 'string', 'C': 'string', 'D': 'string'},\n"
+        "  'correct': 'A, B, C, or D',\n"
+        "  'explanation': 'string'\n"
+        "}"
+    )
+
+    user_prompt = f"Generate a {level.upper()} {category} question."
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json"
+            )
+        )
+
+        raw_content = response.text
+        
+        data = json.loads(raw_content)
+        
+        required_keys = ["question", "options", "correct", "explanation"]
+        if all(key in data for key in required_keys):
+            return data
+        else:
+            raise ValueError("Missing keys in AI response")
+            
+    except Exception as e:
+        logger.error(f"Quiz Generation Error: {e}")
+        return {
+            "question": "Could not generate a question at this time.",
+            "options": {"A": "Error", "B": "Error", "C": "Error", "D": "Error"},
+            "correct": "A",
+            "explanation": f"The AI encountered an issue: {str(e)}"
+        }

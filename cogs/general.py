@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from discord.ext import commands
 
 import history
-from utils.ai import summarize_channel
+from utils.ai import generate_quiz_question, summarize_channel
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class GeneralCog(commands.Cog):
         lines = min(int(number), 100)
         await ctx.channel.purge(limit=lines)
 
-    @commands.command(name="clear", help="Clears stored AI history for this channel or all channels. Usage: !clear")
+    @commands.command(name="clear", help="Clears stored AI history for this channel. Usage: !clear")
     async def clear(self, ctx):
         if ctx.guild is None:
             await ctx.send("This command can only be used in a server.")
@@ -89,6 +89,64 @@ class GeneralCog(commands.Cog):
             logger.exception(f"Error generating summary: {e}")
             await ctx.send("Oops, something went wrong while generating the summary")
 
+    @commands.command(name="v")
+    async def quiz(self, ctx, level: str, category: str):
+        """
+        Generates a language quiz.
+        
+        Parameters:
+        level: The level you want to study (e.g., n1-n5 or topik1-6)
+        category: The type of question (vocab, grammar, or reading)
+        """
+        level = level.lower()
+        category = category.lower()
+        
+        emoji_map = {"A": "🇦", "B": "🇧", "C": "🇨", "D": "🇩"}
+        reverse_map = {v: k for k, v in emoji_map.items()}
+
+        loading_msg = await ctx.send(f"Generating a **{level.upper()} {category}** question...")
+
+        try:
+            q_data = generate_quiz_question(level, category)
+
+            quiz_text = (
+                f"**{level.upper()} {category.capitalize()} Quiz**\n"
+                f"```\n{q_data['question']}\n```\n"
+                f"**A)** {q_data['options']['A']}\n"
+                f"**B)** {q_data['options']['B']}\n"
+                f"**C)** {q_data['options']['C']}\n"
+                f"**D)** {q_data['options']['D']}\n\n"
+                f"*React with the correct letter!*"
+            )
+            
+            await loading_msg.edit(content=quiz_text)
+            for emoji in emoji_map.values():
+                await loading_msg.add_reaction(emoji)
+
+            def check(reaction, user):
+                return (
+                    user == ctx.author and 
+                    str(reaction.emoji) in emoji_map.values() and 
+                    reaction.message.id == loading_msg.id
+                )
+
+            try:
+                reaction, user = await self.bot.wait_for("reaction_add", timeout=60.0, check=check)
+                user_choice = reverse_map[str(reaction.emoji)]
+
+                if user_choice == q_data['correct']:
+                    result_msg = f"**Correct!** The answer was **{q_data['correct']}**."
+                else:
+                    result_msg = f"**Incorrect.** The correct answer was **{q_data['correct']}**."
+
+                await ctx.send(f"{ctx.author.mention} {result_msg}\n> {q_data['explanation']}")
+
+            except TimeoutError:
+                await ctx.send(f"{ctx.author.mention}, time's up! The answer was **{q_data['correct']}**.")
+
+        except Exception as e:
+            logger.exception(f"Quiz Error: {e}")
+            await ctx.send("Failed to generate a question. Please try again.")
 
 async def setup(bot):
     await bot.add_cog(GeneralCog(bot))
