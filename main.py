@@ -73,14 +73,17 @@ async def on_message(message):
     if content:
         if content[0].startswith("!"):
             keyword = content[0][1:]
-            if keyword in COMMAND_LIST:
+
+            if bot.get_command(keyword):
                 await bot.process_commands(message)
                 return
-            else:
-                quote = await get_quote_by_key(keyword)
-                if quote:
-                    await message.channel.send(quote)
+            
+            quote = await get_quote_by_key(keyword)
+            if quote:
+                await message.channel.send(quote)
                 return
+            
+            return
             
         if content[0].lower() == ("paruru,"):
             await handle_ai_chat(message)
