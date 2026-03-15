@@ -119,6 +119,9 @@ class GeneralCog(commands.Cog):
         try:
             q_data = await asyncio.to_thread(generate_quiz_question, level, category)
 
+            if not q_data or 'question' not in q_data:
+                raise ValueError("Incomplete data received from AI")
+
             quiz_text = (
                 f"**{level.upper()} {category.capitalize()} Quiz**\n"
                 f"```\n{q_data['question']}\n```\n"
@@ -155,7 +158,7 @@ class GeneralCog(commands.Cog):
 
         except Exception as e:
             logger.exception(f"Quiz Error: {e}")
-            await ctx.send("Failed to generate a question. Please try again.")
+            await loading_msg.edit(content="Failed to generate a question. Please try again.")
 
 async def setup(bot):
     await bot.add_cog(GeneralCog(bot))
