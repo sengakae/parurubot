@@ -134,7 +134,7 @@ class GeneralCog(commands.Cog):
 
             def check(reaction, user):
                 return (
-                    user == ctx.author and 
+                    not user.bot and 
                     str(reaction.emoji) in emoji_map.values() and 
                     reaction.message.id == loading_msg.id
                 )
@@ -148,10 +148,10 @@ class GeneralCog(commands.Cog):
                 else:
                     result_msg = f"**Incorrect.** The correct answer was **{q_data['correct']}**."
 
-                await ctx.send(f"{ctx.author.mention} {result_msg}\n> {q_data['explanation']}")
+                await ctx.send(f"{ctx.user.mention} {result_msg}\n> {q_data['explanation']}")
 
             except asyncio.TimeoutError:
-                await ctx.send(f"{ctx.author.mention}, time's up! The answer was **{q_data['correct']}**.")
+                await ctx.send(f"Time's up! The answer was **{q_data['correct']}**.")
 
         except Exception as e:
             logger.exception(f"Quiz Error: {e}")
