@@ -151,14 +151,14 @@ class GeneralCog(commands.Cog):
                 else:
                     result_msg = f"**Incorrect.** The correct answer was **{q_data['correct']}**."
 
-                await ctx.send(f"{ctx.user.mention} {result_msg}\n> {q_data['explanation']}")
+                await ctx.send(f"{user.mention} {result_msg}\n> {q_data['explanation']}")
 
             except asyncio.TimeoutError:
                 await ctx.send(f"Time's up! The answer was **{q_data['correct']}**.")
 
         except Exception as e:
             logger.exception(f"Quiz Error: {e}")
-            await loading_msg.edit(content="Failed to generate a question. Please try again.")
+            await ctx.send("Failed to generate a question. Please try again.")
 
 async def setup(bot):
     await bot.add_cog(GeneralCog(bot))
