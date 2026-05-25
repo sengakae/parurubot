@@ -7,10 +7,9 @@ BUILDER_TIMEOUT = 300
 
 
 def format_task_line(task: dict) -> str:
-    line = f"### {task['text']}"
     if task["done"]:
-        return f"{CHECKED_EMOJI_NAME} {line}"
-    return line
+        return f"### {CHECKED_EMOJI_NAME} {task['text']}"
+    return f"### {task['text']}"
 
 
 def _author_only(interaction: discord.Interaction, author_id: int) -> bool:
