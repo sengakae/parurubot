@@ -1,4 +1,4 @@
-# parurubot
+# Parurubot
 
 A feature-rich Discord bot built with Python and Discord.py, featuring AI-powered chat, personal notes management, and utility commands.
 
@@ -23,6 +23,8 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 - **Gear Score Calculator**: Calculate Epic Seven gear scores with various stat types
 - **Channel Management**: Purge messages and view conversation history
 - **AI Summaries**: Generate intelligent summaries of channel conversations
+- **Interactive Checklists**: Build a to-do list with checkboxes and numbered toggle buttons
+- **Signup Sheets**: Create event signup lists with optional +1 guests
 
 ## Quick Start
 
@@ -76,7 +78,9 @@ discord-bot/
 │   ├── general.py         # General commands (purge, history, summary)
 │   ├── weather.py         # Weather information commands
 │   ├── gs.py             # Gear score calculator
-│   └── quotes.py         # Quote management commands
+│   ├── quotes.py         # Quote management commands
+│   ├── tasklist.py       # Interactive checklist
+│   └── signup.py         # Signup sheets
 ├── utils/                  # Utility modules
 │   ├── ai.py             # AI chat and summarization
 │   ├── notes.py          # Personal notes management
@@ -121,6 +125,21 @@ discord-bot/
   - **Levels**: N1-N5 (JLPT), TOPIK1-6, HSK1-9
   - **Categories**: vocab, grammar, reading
 
+### Interactive Checklist
+- **`!tasklist`** - Open an interactive checklist builder, then publish a shared to-do list
+  - **Add task** - Opens a modal to add one task at a time (up to 25 tasks)
+  - **Edit a task** - Dropdown to pick a task and edit it before publishing
+  - **Finish** - Publishes the checklist with numbered buttons to mark tasks complete
+  - **Cancel** - Aborts without creating the list
+  - Only the user who ran the command can use the builder controls
+
+### Signup Sheets
+- **`!signup [title]`** - Create a signup sheet for an event or activity
+  - **Guests (+1s)** - Dropdown to select 0–9 additional guests before signing up
+  - **Sign up** - Adds your display name to the list (updates your +1 count if you sign up again)
+  - **Leave** - Removes yourself from the list
+  - **Delete sheet** - Removes the signup sheet (only the creator who ran `!signup`)
+
 ## Configuration
 
 ### Personal Notes
@@ -140,7 +159,7 @@ discord-bot/
 2. Inherit from `commands.Cog`
 3. Add your command methods with the `@commands.command()` decorator
 4. Include a `setup(bot)` function for cog loading
-5. Add the cog to the `load_cogs()` function in `main.py`
+5. Cogs in `cogs/` are loaded automatically on startup (`load_cogs()` in `main.py`)
 
 ### Example Cog Structure
 ```python
