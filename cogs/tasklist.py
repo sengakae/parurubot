@@ -6,10 +6,11 @@ MAX_TASKS = 25
 BUILDER_TIMEOUT = 300
 
 
-def format_task_line(task: dict) -> str:
+def format_task_line(index: int, task: dict) -> str:
+    prefix = f"{index + 1}. {task['text']}"
     if task["done"]:
-        return f"### {CHECKED_EMOJI_NAME} {task['text']}"
-    return f"### {task['text']}"
+        return f"### {CHECKED_EMOJI_NAME} {prefix}"
+    return f"### {prefix}"
 
 
 def _author_only(interaction: discord.Interaction, author_id: int) -> bool:
@@ -282,7 +283,10 @@ class TaskListView(discord.ui.View):
             self.add_item(TaskToggleButton(index, self.tasks[index]["done"]))
 
     def build_embed(self) -> discord.Embed:
-        lines = [format_task_line(task) for task in self.tasks]
+        lines = [
+            format_task_line(index, task)
+            for index, task in enumerate(self.tasks)
+        ]
         completed = sum(1 for task in self.tasks if task["done"])
         embed = discord.Embed(
             description="\n".join(lines),
