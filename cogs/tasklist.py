@@ -224,7 +224,9 @@ class TaskListBuilderView(discord.ui.View):
                 "When you're done, click **Finish** to create your checklist."
             )
         else:
-            lines = [f"### {index + 1}. {task}" for index, task in enumerate(self.tasks)]
+            lines = [
+                f"### {index + 1}. {task}" for index, task in enumerate(self.tasks)
+            ]
             description = (
                 "\n".join(lines)
                 + "\n\n_Click **Add task** for more, use **Edit a task** to change one, "
@@ -283,7 +285,6 @@ class TaskListView(discord.ui.View):
         lines = [format_task_line(task) for task in self.tasks]
         completed = sum(1 for task in self.tasks if task["done"])
         embed = discord.Embed(
-            title="Task list",
             description="\n".join(lines),
             color=discord.Color.blurple(),
         )
