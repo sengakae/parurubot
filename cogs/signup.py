@@ -48,18 +48,8 @@ class PlusOnesSelect(discord.ui.Select):
         count = int(self.values[0])
         view.guest_counts[interaction.user.id] = count
 
-        if count == 0:
-            message = "Selected **just you** (no +1s). Click **Sign up** to join."
-        else:
-            guest_label = "guest" if count == 1 else "guests"
-            message = (
-                f"Selected **+{count}** ({count} additional {guest_label}). "
-                "Click **Sign up** to join."
-            )
-
         self.placeholder = f"Guests (+1s): {count}"
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
-        await interaction.followup.send(message, ephemeral=True)
 
 
 class SignUpButton(discord.ui.Button):
@@ -71,21 +61,12 @@ class SignUpButton(discord.ui.Button):
         user = interaction.user
         plus_ones = view.guest_counts.get(user.id, 0)
 
-        if user.id in view.signups:
-            view.signups[user.id] = {
-                "display_name": user.display_name,
-                "plus_ones": plus_ones,
-            }
-            message = "Updated your signup."
-        else:
-            view.signups[user.id] = {
-                "display_name": user.display_name,
-                "plus_ones": plus_ones,
-            }
-            message = "You have been added to the signup sheet."
+        view.signups[user.id] = {
+            "display_name": user.display_name,
+            "plus_ones": plus_ones,
+        }
 
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
-        await interaction.followup.send(message, ephemeral=True)
 
 
 class DeleteSignupButton(discord.ui.Button):
@@ -135,9 +116,6 @@ class LeaveSignupButton(discord.ui.Button):
         view.guest_counts.pop(user.id, None)
 
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
-        await interaction.followup.send(
-            "You have been removed from the signup sheet.", ephemeral=True
-        )
 
 
 class SignupView(discord.ui.View):
