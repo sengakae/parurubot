@@ -8,7 +8,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config import CHAR_LIMIT, COMMAND_LIST, TIME_INDICATORS, WEB_SEARCH_KEYWORDS
+from config import CHAR_LIMIT
 from db import get_quote_by_key, init_db
 from history import add_message_to_history, get_channel_history
 from utils.ai import chat_with_ai, convert_pil_to_part, convert_video_to_part
@@ -18,7 +18,7 @@ from utils.notes import load_personal_notes, search_personal_notes
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("parurubot")
 
@@ -65,11 +65,11 @@ async def on_message(message):
     """Handle incoming messages"""
     if message.author == bot.user:
         return
-    
+
     content = message.content.split()
     if not content and not message.attachments:
         return
-    
+
     if content:
         if content[0].startswith("!"):
             keyword = content[0][1:]
@@ -77,14 +77,14 @@ async def on_message(message):
             if bot.get_command(keyword):
                 await bot.process_commands(message)
                 return
-            
+
             quote = await get_quote_by_key(keyword)
             if quote:
                 await message.channel.send(quote)
                 return
-            
+
             return
-            
+
         if content[0].lower() == ("paruru,"):
             await handle_ai_chat(message)
             return
@@ -92,7 +92,9 @@ async def on_message(message):
     message_content = message.content
 
     youtube_urls, stripped_text = extract_youtube_urls(message_content)
-    message_images = await collect_images_from_message(stripped_text, message.attachments)
+    message_images = await collect_images_from_message(
+        stripped_text, message.attachments
+    )
 
     if message_images:
         message_content += f" [sent {len(message_images)} image(s)]"
@@ -101,12 +103,12 @@ async def on_message(message):
 
     if not message.content.startswith("!"):
         add_message_to_history(
-            message.channel.id, 
-            message.author.display_name, 
-            message_content, 
+            message.channel.id,
+            message.author.display_name,
+            message_content,
             is_bot=False,
             images=message_images,
-            videos=youtube_urls
+            videos=youtube_urls,
         )
 
 
@@ -117,20 +119,29 @@ async def handle_ai_chat(message):
     try:
         channel_id = message.channel.id
 
-        current_images  = []
+        current_images = []
         current_videos = []
 
         """Check current message"""
         urls, stripped_text = extract_youtube_urls(cleaned_content)
         current_videos.extend(urls)
-        current_images.extend(await collect_images_from_message(stripped_text, message.attachments))
+        current_images.extend(
+            await collect_images_from_message(stripped_text, message.attachments)
+        )
 
         """Check replied message"""
         if message.reference:
-            replied_msg = message.reference.resolved or await message.channel.fetch_message(message.reference.message_id)
+            replied_msg = (
+                message.reference.resolved
+                or await message.channel.fetch_message(message.reference.message_id)
+            )
             urls, stripped_text = extract_youtube_urls(replied_msg.content)
-            current_videos.extend(urls)    
-            current_images.extend(await collect_images_from_message(stripped_text, replied_msg.attachments))
+            current_videos.extend(urls)
+            current_images.extend(
+                await collect_images_from_message(
+                    stripped_text, replied_msg.attachments
+                )
+            )
 
         if current_images:
             logger.info(f"Found {len(current_images)} images")
@@ -140,12 +151,14 @@ async def handle_ai_chat(message):
 
         if len(current_images) > MAX_IMAGES:
             logger.info(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
-            current_images = current_images[:MAX_IMAGES - len(current_images)]
-            
+            current_images = current_images[: MAX_IMAGES - len(current_images)]
+
         if len(current_videos) > MAX_VIDEOS:
-            logger.info(f"Limiting YouTube URLs from {len(current_videos)} to {MAX_VIDEOS}")
+            logger.info(
+                f"Limiting YouTube URLs from {len(current_videos)} to {MAX_VIDEOS}"
+            )
             current_videos = current_videos[:MAX_VIDEOS]
-        
+
         history_messages = get_channel_history(channel_id, include_media=True)
         history_context = ""
 
@@ -158,11 +171,17 @@ async def handle_ai_chat(message):
                     if added_media:
                         continue
 
-                    conversation_parts.append({"text": f"{msg['author']} shared media:"})
+                    conversation_parts.append(
+                        {"text": f"{msg['author']} shared media:"}
+                    )
 
                     last_media_index = next(
-                        (i for i in range(len(history_messages)-1, -1, -1) if history_messages[i]["has_media"]),
-                        None
+                        (
+                            i
+                            for i in range(len(history_messages) - 1, -1, -1)
+                            if history_messages[i]["has_media"]
+                        ),
+                        None,
                     )
 
                     for i, msg in enumerate(history_messages):
@@ -170,24 +189,27 @@ async def handle_ai_chat(message):
                             if i != last_media_index:
                                 continue
 
-                            conversation_parts.append({"text": f"{msg['author']} shared media:"})
+                            conversation_parts.append(
+                                {"text": f"{msg['author']} shared media:"}
+                            )
 
                             for img in msg["images"]:
-                                conversation_parts.append(convert_pil_to_part(img)) 
+                                conversation_parts.append(convert_pil_to_part(img))
 
                             for vid in msg["videos"]:
-                                conversation_parts.append(convert_video_to_part(vid)) 
+                                conversation_parts.append(convert_video_to_part(vid))
 
                         else:
-                            conversation_parts.append({"text": f"{msg['author']}: {msg['content']}"})
-                
+                            conversation_parts.append(
+                                {"text": f"{msg['author']}: {msg['content']}"}
+                            )
+
                 else:
-                    conversation_parts.append({"text": f"{msg['author']}: {msg['content']}"})
-                    
-            history_context = {
-                "role": "user",
-                "parts": conversation_parts
-            }
+                    conversation_parts.append(
+                        {"text": f"{msg['author']}: {msg['content']}"}
+                    )
+
+            history_context = {"role": "user", "parts": conversation_parts}
 
         relevant_notes = search_personal_notes(cleaned_content, n_results=2)
         notes_context = ""
@@ -202,22 +224,31 @@ async def handle_ai_chat(message):
                 response_text = await asyncio.wait_for(
                     asyncio.to_thread(
                         chat_with_ai,
-                        cleaned_content, 
-                        history_context, 
-                        notes_context, 
-                        True, 
-                        current_images, 
-                        current_videos
+                        cleaned_content,
+                        history_context,
+                        notes_context,
+                        True,
+                        current_images,
+                        current_videos,
                     ),
-                    timeout=AI_TIMEOUT
+                    timeout=AI_TIMEOUT,
                 )
             except asyncio.TimeoutError:
                 logger.warning("AI response timed out")
-                await message.channel.send("that took too much thinking, gonna take a nap...")
+                await message.channel.send(
+                    "that took too much thinking, gonna take a nap..."
+                )
                 return
 
         logger.info(f"Response: {response_text}")
-        add_message_to_history(message.channel.id, "Bot", response_text, is_bot=True, images=current_images, videos=current_videos)
+        add_message_to_history(
+            message.channel.id,
+            "Bot",
+            response_text,
+            is_bot=True,
+            images=current_images,
+            videos=current_videos,
+        )
 
         if len(response_text) > CHAR_LIMIT:
             await message.channel.send("whoa that's way too much text, my brain hurts!")
