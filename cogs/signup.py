@@ -88,6 +88,35 @@ class SignUpButton(discord.ui.Button):
         await interaction.followup.send(message, ephemeral=True)
 
 
+class DeleteSignupButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(
+            label="Delete sheet",
+            style=discord.ButtonStyle.danger,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: SignupView = self.view
+        if interaction.user.id != view.creator_id:
+            await interaction.response.send_message(
+                "Only the person who created this signup sheet can delete it.",
+                ephemeral=True,
+            )
+            return
+
+        for item in view.children:
+            item.disabled = True
+
+        embed = discord.Embed(
+            title=f"{view.title} (deleted)",
+            description="This signup sheet was deleted by its creator.",
+            color=discord.Color.dark_grey(),
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+        view.stop()
+
+
 class LeaveSignupButton(discord.ui.Button):
     def __init__(self):
         super().__init__(label="Leave", style=discord.ButtonStyle.secondary, row=0)
@@ -112,14 +141,16 @@ class LeaveSignupButton(discord.ui.Button):
 
 
 class SignupView(discord.ui.View):
-    def __init__(self, title: str, creator_name: str):
+    def __init__(self, title: str, creator_id: int, creator_name: str):
         super().__init__(timeout=SIGNUP_TIMEOUT)
         self.title = title
+        self.creator_id = creator_id
         self.creator_name = creator_name
         self.signups: dict[int, dict] = {}
         self.guest_counts: dict[int, int] = {}
         self.add_item(SignUpButton())
         self.add_item(LeaveSignupButton())
+        self.add_item(DeleteSignupButton())
         self.add_item(PlusOnesSelect())
 
     def build_embed(self) -> discord.Embed:
@@ -168,7 +199,7 @@ class SignupCog(commands.Cog):
             await ctx.send("Title must be 256 characters or fewer.")
             return
 
-        view = SignupView(title, ctx.author.display_name)
+        view = SignupView(title, ctx.author.id, ctx.author.display_name)
         await ctx.send(embed=view.build_embed(), view=view)
 
 
