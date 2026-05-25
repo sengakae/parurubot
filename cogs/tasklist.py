@@ -16,6 +16,22 @@ def _author_only(interaction: discord.Interaction, author_id: int) -> bool:
     return interaction.user.id == author_id
 
 
+def _select_option_label(index: int, task: str) -> str:
+    label = f"{index + 1}. {task}"
+    return label[:100]
+
+
+async def _refresh_builder(
+    interaction: discord.Interaction, builder_view: "TaskListBuilderView"
+):
+    builder_view.clear_items()
+    builder_view._attach_buttons()
+    await interaction.response.edit_message(
+        embed=builder_view.build_embed(),
+        view=builder_view,
+    )
+
+
 class AddTaskModal(discord.ui.Modal, title="Add a task"):
     def __init__(self, builder_view: "TaskListBuilderView"):
         super().__init__()
@@ -50,12 +66,69 @@ class AddTaskModal(discord.ui.Modal, title="Add a task"):
             return
 
         self.builder_view.tasks.append(text)
-        self.builder_view.clear_items()
-        self.builder_view._attach_buttons()
-        await interaction.response.edit_message(
-            embed=self.builder_view.build_embed(),
-            view=self.builder_view,
+        await _refresh_builder(interaction, self.builder_view)
+
+
+class EditTaskModal(discord.ui.Modal, title="Edit task"):
+    def __init__(self, builder_view: "TaskListBuilderView", index: int):
+        super().__init__()
+        self.builder_view = builder_view
+        self.index = index
+        self.task_input = discord.ui.TextInput(
+            label="Task",
+            default=builder_view.tasks[index],
+            max_length=200,
+            required=True,
         )
+        self.add_item(self.task_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not _author_only(interaction, self.builder_view.author_id):
+            await interaction.response.send_message(
+                "Only the person who started this list can edit tasks.",
+                ephemeral=True,
+            )
+            return
+
+        text = self.task_input.value.strip()
+        if not text:
+            await interaction.response.send_message(
+                "Task cannot be empty.", ephemeral=True
+            )
+            return
+
+        self.builder_view.tasks[self.index] = text
+        await _refresh_builder(interaction, self.builder_view)
+
+
+class EditTaskSelect(discord.ui.Select):
+    def __init__(self, tasks: list[str]):
+        options = [
+            discord.SelectOption(
+                label=_select_option_label(index, task),
+                value=str(index),
+            )
+            for index, task in enumerate(tasks)
+        ]
+        super().__init__(
+            placeholder="Edit a task...",
+            options=options,
+            min_values=1,
+            max_values=1,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: TaskListBuilderView = self.view
+        if not _author_only(interaction, view.author_id):
+            await interaction.response.send_message(
+                "Only the person who started this list can edit tasks.",
+                ephemeral=True,
+            )
+            return
+
+        index = int(self.values[0])
+        await interaction.response.send_modal(EditTaskModal(view, index))
 
 
 class AddTaskButton(discord.ui.Button):
@@ -141,6 +214,8 @@ class TaskListBuilderView(discord.ui.View):
         self.add_item(AddTaskButton(disabled=at_limit))
         self.add_item(FinishListButton())
         self.add_item(CancelListButton())
+        if self.tasks:
+            self.add_item(EditTaskSelect(self.tasks))
 
     def build_embed(self) -> discord.Embed:
         if not self.tasks:
@@ -152,7 +227,8 @@ class TaskListBuilderView(discord.ui.View):
             lines = [f"### {index + 1}. {task}" for index, task in enumerate(self.tasks)]
             description = (
                 "\n".join(lines)
-                + "\n\n_Click **Add task** for more, or **Finish** to publish._"
+                + "\n\n_Click **Add task** for more, use **Edit a task** to change one, "
+                "or **Finish** to publish._"
             )
 
         embed = discord.Embed(
