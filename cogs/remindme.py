@@ -15,7 +15,7 @@ _COUNTDOWN_RE = re.compile(
     re.IGNORECASE,
 )
 _ISO_TZ_ABBREV_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})([A-Za-z/_+-]+)$"
+    r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)([A-Za-z/_+-]+)$"
 )
 
 _TZ_ABBREVS = {
@@ -60,6 +60,8 @@ _FIXED_OFFSET_HOURS = {
 def _to_utc_from_local_string(dt_str: str, tz_token: str) -> datetime | None:
     tz_key = tz_token.upper()
     tz_name = _TZ_ABBREVS.get(tz_key, tz_token)
+    if len(dt_str) == 16:
+        dt_str = f"{dt_str}:00"
     naive = datetime.fromisoformat(dt_str)
 
     try:
@@ -127,6 +129,12 @@ def parse_remind_time(value: str) -> datetime | None:
     return None
 
 
+def _friendly_datetime(dt: datetime, tz_label: str) -> str:
+    """Human-readable time for Discord messages (avoids :NN: emoji parsing in ISO strings)."""
+    time_part = dt.strftime("%I:%M %p").lstrip("0")
+    return f"on {dt.strftime('%B %d, %Y')} at {time_part} {tz_label}"
+
+
 def format_remind_at(remind_at_utc: datetime, time_input: str) -> str:
     countdown = parse_countdown(time_input)
     if countdown is not None:
@@ -160,10 +168,10 @@ def format_remind_at(remind_at_utc: datetime, time_input: str) -> str:
                     )
                 except ZoneInfoNotFoundError:
                     local = parsed
-            time_part = local.strftime("%I:%M %p").lstrip("0")
-            return f"on {local.strftime('%B %d, %Y')} at {time_part} {tz_token.upper()}"
+            return _friendly_datetime(local, tz_token.upper())
 
-    return f"at {remind_at_utc.astimezone(timezone.utc).isoformat()} UTC"
+    utc = remind_at_utc.astimezone(timezone.utc)
+    return _friendly_datetime(utc, "UTC")
 
 
 class RemindMeCog(commands.Cog):
@@ -254,7 +262,7 @@ class RemindMeCog(commands.Cog):
 
     @commands.command(
         name="remindme",
-        help="Set a reminder: !remindme <message> <time> (e.g. 2h15m or 2026-05-31T16:00:00PDT)",
+        help="Set a reminder: !remindme <message> <time> (e.g. 2h15m or 2026-05-31T16:00PDT)",
     )
     async def remindme(self, ctx, *, args: str):
         parts = args.rsplit(maxsplit=1)
@@ -262,7 +270,7 @@ class RemindMeCog(commands.Cog):
             await ctx.send(
                 "Usage: `!remindme <message> <time>`\n"
                 "Time can be a countdown (`2h15m`, `30m`, `1d2h`) or a datetime with timezone "
-                "(`2026-05-31T16:00:00PDT`)."
+                "(`2026-05-31T16:00PDT`)."
             )
             return
 
@@ -275,7 +283,7 @@ class RemindMeCog(commands.Cog):
         if remind_at is None:
             await ctx.send(
                 "Could not parse that time. Use a countdown like `2h15m` or a datetime like "
-                "`2026-05-31T16:00:00PDT`."
+                "`2026-05-31T16:00PDT`."
             )
             return
 
