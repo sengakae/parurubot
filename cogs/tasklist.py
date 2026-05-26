@@ -472,18 +472,35 @@ class SaveTaskListButton(discord.ui.Button):
             )
             return
 
-        task_view = TaskListView(
-            view.author_name,
-            view.author_id,
-            channel_id=view.channel_id,
-            message_id=view.message_id,
-            tasks=view.tasks,
-        )
-        await interaction.response.edit_message(
-            embed=task_view.build_embed(),
-            view=task_view,
-        )
-        await _publish_tasklist(interaction.client, task_view)
+        all_done = all(task["done"] for task in view.tasks)
+
+        if all_done:
+            await db.delete_tasklist(view.message_id)
+
+            task_view = TaskListView(
+                view.author_name,
+                view.author_id,
+                channel_id=view.channel_id,
+                message_id=view.message_id,
+                tasks=view.tasks,
+            )
+            embed = task_view.build_embed()
+            embed.color = discord.Color.green()
+
+            await interaction.response.edit_message(embed=embed, view=None)
+        else:
+            task_view = TaskListView(
+                view.author_name,
+                view.author_id,
+                channel_id=view.channel_id,
+                message_id=view.message_id,
+                tasks=view.tasks,
+            )
+            await interaction.response.edit_message(
+                embed=task_view.build_embed(),
+                view=task_view,
+            )
+            await _publish_tasklist(interaction.client, task_view)
 
 
 class CancelPublishedEditButton(discord.ui.Button):
@@ -644,10 +661,7 @@ class TaskListPublishedEditView(discord.ui.View):
             self.add_item(PublishedEditTaskSelect(self.tasks))
 
     def build_embed(self) -> discord.Embed:
-        lines = [
-            format_task_line(index, task)
-            for index, task in enumerate(self.tasks)
-        ]
+        lines = [format_task_line(index, task) for index, task in enumerate(self.tasks)]
         description = (
             "\n".join(lines)
             + "\n\n_Click **Add task** or **Edit a task** to update the list, "
@@ -702,13 +716,27 @@ class TaskToggleButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view: TaskListView = self.view
         view.tasks[self.index]["done"] = not view.tasks[self.index]["done"]
+        all_done = all(task["done"] for task in view.tasks)
+
         view.clear_items()
-        view._attach_buttons()
-        await _save_tasklist(view)
-        await interaction.response.edit_message(
-            embed=view.build_embed(),
-            view=view,
-        )
+
+        if all_done:
+            await db.delete_tasklist(view.message_id)
+
+            embed = view.build_embed()
+            embed.color = discord.Color.green()
+
+            await interaction.response.edit_message(
+                embed=embed,
+                view=None,
+            )
+        else:
+            view._attach_buttons()
+            await _save_tasklist(view)
+            await interaction.response.edit_message(
+                embed=view.build_embed(),
+                view=view,
+            )
 
 
 class TaskListView(discord.ui.View):
@@ -748,25 +776,22 @@ class TaskListView(discord.ui.View):
     def _attach_buttons(self):
         for index in range(len(self.tasks)):
             self.add_item(
-                TaskToggleButton(
-                    self.message_id, index, self.tasks[index]["done"]
-                )
+                TaskToggleButton(self.message_id, index, self.tasks[index]["done"])
             )
         edit_row = _edit_button_row(len(self.tasks))
         if edit_row is not None:
             self.add_item(EditListButton(self.message_id, row=edit_row))
 
     def build_embed(self) -> discord.Embed:
-        lines = [
-            format_task_line(index, task)
-            for index, task in enumerate(self.tasks)
-        ]
+        lines = [format_task_line(index, task) for index, task in enumerate(self.tasks)]
         completed = sum(1 for task in self.tasks if task["done"])
         embed = discord.Embed(
             description="\n".join(lines),
             color=discord.Color.blurple(),
         )
-        footer = f"{completed}/{len(self.tasks)} completed · Created by {self.author_name}"
+        footer = (
+            f"{completed}/{len(self.tasks)} completed · Created by {self.author_name}"
+        )
         if _edit_button_row(len(self.tasks)) is None:
             footer += " · Use your private **Edit list** message to edit"
         embed.set_footer(text=footer)
