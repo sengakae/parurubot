@@ -17,6 +17,20 @@ def total_headcount(signups: dict[int, dict]) -> int:
     return sum(1 + entry["plus_ones"] for entry in signups.values())
 
 
+def _headcount_if_updated(
+    signups: dict[int, dict], user_id: int, plus_ones: int
+) -> int:
+    """Total headcount if user_id signs up (or updates) with the given guest count."""
+    total = total_headcount(signups)
+    if user_id in signups:
+        total -= 1 + signups[user_id]["plus_ones"]
+    return total + 1 + plus_ones
+
+
+def _cap_exceeded_message(cap: int) -> str:
+    return f"This signup is full ({cap} spots including guests)."
+
+
 class PlusOnesSelect(discord.ui.Select):
     def __init__(self):
         options = [
@@ -46,8 +60,19 @@ class PlusOnesSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         view: SignupView = self.view
         count = int(self.values[0])
-        view.guest_counts[interaction.user.id] = count
+        user_id = interaction.user.id
 
+        if view.cap is not None and user_id in view.signups:
+            new_total = _headcount_if_updated(view.signups, user_id, count)
+            if new_total > view.cap:
+                await interaction.response.send_message(
+                    _cap_exceeded_message(view.cap),
+                    ephemeral=True,
+                )
+                return
+            view.signups[user_id]["plus_ones"] = count
+
+        view.guest_counts[user_id] = count
         self.placeholder = f"Guests (+1s): {count}"
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
 
@@ -60,6 +85,15 @@ class SignUpButton(discord.ui.Button):
         view: SignupView = self.view
         user = interaction.user
         plus_ones = view.guest_counts.get(user.id, 0)
+
+        if view.cap is not None:
+            new_total = _headcount_if_updated(view.signups, user.id, plus_ones)
+            if new_total > view.cap:
+                await interaction.response.send_message(
+                    _cap_exceeded_message(view.cap),
+                    ephemeral=True,
+                )
+                return
 
         view.signups[user.id] = {
             "display_name": user.display_name,
@@ -119,11 +153,19 @@ class LeaveSignupButton(discord.ui.Button):
 
 
 class SignupView(discord.ui.View):
-    def __init__(self, title: str, creator_id: int, creator_name: str):
+    def __init__(
+        self,
+        title: str,
+        creator_id: int,
+        creator_name: str,
+        *,
+        cap: int | None = None,
+    ):
         super().__init__(timeout=SIGNUP_TIMEOUT)
         self.title = title
         self.creator_id = creator_id
         self.creator_name = creator_name
+        self.cap = cap
         self.signups: dict[int, dict] = {}
         self.guest_counts: dict[int, int] = {}
         self.add_item(SignUpButton())
@@ -138,6 +180,8 @@ class SignupView(discord.ui.View):
                 "Choose how many +1s you are bringing from the dropdown, "
                 "then click **Sign up**."
             )
+            if self.cap is not None:
+                description += f"\n\n_Capacity: **{self.cap}** people (including guests)._"
         else:
             entries = list(self.signups.values())
             description = "\n".join(
@@ -151,12 +195,17 @@ class SignupView(discord.ui.View):
             description=description,
             color=discord.Color.green(),
         )
-        embed.set_footer(
-            text=(
+        if self.cap is not None:
+            footer = (
+                f"{signup_count} signed up · {headcount}/{self.cap} spots filled "
+                f"(including guests) · Created by {self.creator_name}"
+            )
+        else:
+            footer = (
                 f"{signup_count} signed up · {headcount} total including guests "
                 f"· Created by {self.creator_name}"
             )
-        )
+        embed.set_footer(text=footer)
         return embed
 
 
@@ -165,19 +214,44 @@ class SignupCog(commands.Cog):
         self.bot = bot
 
     @commands.command(
-        name="signup", help="Create a signup sheet with optional +1 guests."
+        name="signup",
+        help="Create a signup sheet. Usage: !signup [cap] [title]",
     )
-    async def signup(self, ctx, *, title: str = None):
-        if not title or not title.strip():
-            await ctx.send("Usage: `!signup [title]`")
+    async def signup(self, ctx, *, args: str = None):
+        if not args or not args.strip():
+            await ctx.send(
+                "Usage: `!signup [cap] [title]`\n"
+                "Example: `!signup 20 Game night` — max 20 people including guests."
+            )
             return
 
-        title = title.strip()
+        parts = args.strip().split(maxsplit=1)
+        cap = None
+        if parts[0].isdigit():
+            cap = int(parts[0])
+            if cap < 1:
+                await ctx.send("Cap must be at least 1.")
+                return
+            if cap > 500:
+                await ctx.send("Cap must be 500 or fewer.")
+                return
+            title = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            title = parts[0].strip()
+
+        if not title:
+            await ctx.send(
+                "Usage: `!signup [cap] [title]` — include a title after the optional cap."
+            )
+            return
+
         if len(title) > 256:
             await ctx.send("Title must be 256 characters or fewer.")
             return
 
-        view = SignupView(title, ctx.author.id, ctx.author.display_name)
+        view = SignupView(
+            title, ctx.author.id, ctx.author.display_name, cap=cap
+        )
         await ctx.send(embed=view.build_embed(), view=view)
 
 
