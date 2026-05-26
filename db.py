@@ -43,6 +43,19 @@ async def init_db():
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS signup_sheets (
+                message_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NOT NULL,
+                creator_id BIGINT NOT NULL,
+                creator_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                cap INT,
+                signups JSONB NOT NULL DEFAULT '{}',
+                guest_counts JSONB NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
 
 
 async def add_quote(key, value):
@@ -165,3 +178,69 @@ async def get_all_tasklists():
 async def delete_tasklist(message_id):
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM tasklists WHERE message_id = $1", message_id)
+
+
+def _parse_int_keyed_json(raw):
+    data = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    return {int(key): value for key, value in data.items()}
+
+
+async def save_signup_sheet(
+    message_id,
+    channel_id,
+    creator_id,
+    creator_name,
+    title,
+    cap,
+    signups,
+    guest_counts,
+):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO signup_sheets (
+                message_id, channel_id, creator_id, creator_name,
+                title, cap, signups, guest_counts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
+            ON CONFLICT (message_id) DO UPDATE SET
+                channel_id = EXCLUDED.channel_id,
+                creator_id = EXCLUDED.creator_id,
+                creator_name = EXCLUDED.creator_name,
+                title = EXCLUDED.title,
+                cap = EXCLUDED.cap,
+                signups = EXCLUDED.signups,
+                guest_counts = EXCLUDED.guest_counts
+            """,
+            message_id,
+            channel_id,
+            creator_id,
+            creator_name,
+            title,
+            cap,
+            json.dumps({str(k): v for k, v in signups.items()}),
+            json.dumps({str(k): v for k, v in guest_counts.items()}),
+        )
+
+
+async def delete_signup_sheet(message_id):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM signup_sheets WHERE message_id = $1", message_id)
+
+
+async def get_all_signup_sheets():
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM signup_sheets ORDER BY created_at")
+        return [
+            {
+                "message_id": row["message_id"],
+                "channel_id": row["channel_id"],
+                "creator_id": row["creator_id"],
+                "creator_name": row["creator_name"],
+                "title": row["title"],
+                "cap": row["cap"],
+                "signups": _parse_int_keyed_json(row["signups"]),
+                "guest_counts": _parse_int_keyed_json(row["guest_counts"]),
+            }
+            for row in rows
+        ]

@@ -1,7 +1,12 @@
+import asyncio
+import logging
+
 import discord
 from discord.ext import commands
 
-SIGNUP_TIMEOUT = 604800
+import db
+
+logger = logging.getLogger(__name__)
 
 
 def format_signup_line(index: int, entry: dict) -> str:
@@ -31,8 +36,83 @@ def _cap_exceeded_message(cap: int) -> str:
     return f"This signup is full ({cap} spots including guests)."
 
 
+def _signup_footer(
+    signup_count: int,
+    headcount: int,
+    creator_name: str,
+    *,
+    cap: int | None = None,
+) -> str:
+    if cap is not None:
+        return (
+            f"{signup_count} signed up · {headcount}/{cap} spots filled "
+            f"(including guests) · Created by {creator_name}"
+        )
+    return (
+        f"{signup_count} signed up · {headcount} total including guests "
+        f"· Created by {creator_name}"
+    )
+
+
+def build_empty_signup_embed(
+    title: str, creator_name: str, *, cap: int | None = None
+) -> discord.Embed:
+    description = (
+        "No signups yet.\n\n"
+        "Choose how many +1s you are bringing from the dropdown, "
+        "then click **Sign up**."
+    )
+    if cap is not None:
+        description += f"\n\n_Capacity: **{cap}** people (including guests)._"
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=discord.Color.green(),
+    )
+    embed.set_footer(text=_signup_footer(0, 0, creator_name, cap=cap))
+    return embed
+
+
+def _sign_custom_id(message_id: int) -> str:
+    return f"signup:sign:{message_id}"
+
+
+def _leave_custom_id(message_id: int) -> str:
+    return f"signup:leave:{message_id}"
+
+
+def _delete_custom_id(message_id: int) -> str:
+    return f"signup:delete:{message_id}"
+
+
+def _guests_custom_id(message_id: int) -> str:
+    return f"signup:guests:{message_id}"
+
+
+async def _save_signup(view: "SignupView") -> None:
+    await db.save_signup_sheet(
+        view.message_id,
+        view.channel_id,
+        view.creator_id,
+        view.creator_name,
+        view.title,
+        view.cap,
+        view.signups,
+        view.guest_counts,
+    )
+
+
+def _register_signup_view(bot: discord.Client, view: "SignupView") -> None:
+    bot.add_view(view)
+
+
+async def _publish_signup(bot: discord.Client, view: "SignupView") -> None:
+    await _save_signup(view)
+    _register_signup_view(bot, view)
+
+
 class PlusOnesSelect(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, message_id: int):
         options = [
             discord.SelectOption(
                 label="Just me",
@@ -55,6 +135,7 @@ class PlusOnesSelect(discord.ui.Select):
             min_values=1,
             max_values=1,
             row=1,
+            custom_id=_guests_custom_id(message_id),
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -75,11 +156,17 @@ class PlusOnesSelect(discord.ui.Select):
         view.guest_counts[user_id] = count
         self.placeholder = f"Guests (+1s): {count}"
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
+        await _save_signup(view)
 
 
 class SignUpButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Sign up", style=discord.ButtonStyle.primary, row=0)
+    def __init__(self, message_id: int):
+        super().__init__(
+            label="Sign up",
+            style=discord.ButtonStyle.primary,
+            row=0,
+            custom_id=_sign_custom_id(message_id),
+        )
 
     async def callback(self, interaction: discord.Interaction):
         view: SignupView = self.view
@@ -101,14 +188,16 @@ class SignUpButton(discord.ui.Button):
         }
 
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
+        await _save_signup(view)
 
 
 class DeleteSignupButton(discord.ui.Button):
-    def __init__(self):
+    def __init__(self, message_id: int):
         super().__init__(
             label="Delete sheet",
             style=discord.ButtonStyle.danger,
             row=0,
+            custom_id=_delete_custom_id(message_id),
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -129,12 +218,18 @@ class DeleteSignupButton(discord.ui.Button):
             color=discord.Color.dark_grey(),
         )
         await interaction.response.edit_message(embed=embed, view=view)
+        await db.delete_signup_sheet(view.message_id)
         view.stop()
 
 
 class LeaveSignupButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Leave", style=discord.ButtonStyle.secondary, row=0)
+    def __init__(self, message_id: int):
+        super().__init__(
+            label="Leave",
+            style=discord.ButtonStyle.secondary,
+            row=0,
+            custom_id=_leave_custom_id(message_id),
+        )
 
     async def callback(self, interaction: discord.Interaction):
         view: SignupView = self.view
@@ -150,6 +245,7 @@ class LeaveSignupButton(discord.ui.Button):
         view.guest_counts.pop(user.id, None)
 
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
+        await _save_signup(view)
 
 
 class SignupView(discord.ui.View):
@@ -158,36 +254,50 @@ class SignupView(discord.ui.View):
         title: str,
         creator_id: int,
         creator_name: str,
+        channel_id: int,
+        message_id: int,
         *,
         cap: int | None = None,
+        signups: dict[int, dict] | None = None,
+        guest_counts: dict[int, int] | None = None,
     ):
-        super().__init__(timeout=SIGNUP_TIMEOUT)
+        super().__init__(timeout=None)
         self.title = title
         self.creator_id = creator_id
         self.creator_name = creator_name
+        self.channel_id = channel_id
+        self.message_id = message_id
         self.cap = cap
-        self.signups: dict[int, dict] = {}
-        self.guest_counts: dict[int, int] = {}
-        self.add_item(SignUpButton())
-        self.add_item(LeaveSignupButton())
-        self.add_item(DeleteSignupButton())
-        self.add_item(PlusOnesSelect())
+        self.signups = dict(signups) if signups is not None else {}
+        self.guest_counts = dict(guest_counts) if guest_counts is not None else {}
+        self.add_item(SignUpButton(message_id))
+        self.add_item(LeaveSignupButton(message_id))
+        self.add_item(DeleteSignupButton(message_id))
+        self.add_item(PlusOnesSelect(message_id))
+
+    @classmethod
+    def from_stored(cls, stored: dict) -> "SignupView":
+        return cls(
+            stored["title"],
+            stored["creator_id"],
+            stored["creator_name"],
+            stored["channel_id"],
+            stored["message_id"],
+            cap=stored["cap"],
+            signups=stored["signups"],
+            guest_counts=stored["guest_counts"],
+        )
 
     def build_embed(self) -> discord.Embed:
         if not self.signups:
-            description = (
-                "No signups yet.\n\n"
-                "Choose how many +1s you are bringing from the dropdown, "
-                "then click **Sign up**."
-            )
-            if self.cap is not None:
-                description += f"\n\n_Capacity: **{self.cap}** people (including guests)._"
-        else:
-            entries = list(self.signups.values())
-            description = "\n".join(
-                format_signup_line(index, entry) for index, entry in enumerate(entries)
+            return build_empty_signup_embed(
+                self.title, self.creator_name, cap=self.cap
             )
 
+        entries = list(self.signups.values())
+        description = "\n".join(
+            format_signup_line(index, entry) for index, entry in enumerate(entries)
+        )
         signup_count = len(self.signups)
         headcount = total_headcount(self.signups)
         embed = discord.Embed(
@@ -195,23 +305,41 @@ class SignupView(discord.ui.View):
             description=description,
             color=discord.Color.green(),
         )
-        if self.cap is not None:
-            footer = (
-                f"{signup_count} signed up · {headcount}/{self.cap} spots filled "
-                f"(including guests) · Created by {self.creator_name}"
+        embed.set_footer(
+            text=_signup_footer(
+                signup_count,
+                headcount,
+                self.creator_name,
+                cap=self.cap,
             )
-        else:
-            footer = (
-                f"{signup_count} signed up · {headcount} total including guests "
-                f"· Created by {self.creator_name}"
-            )
-        embed.set_footer(text=footer)
+        )
         return embed
 
 
 class SignupCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._restored = False
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self._restored:
+            return
+        for _ in range(20):
+            if db.pool is not None:
+                self._restored = True
+                await self._restore_signup_sheets()
+                return
+            await asyncio.sleep(0.25)
+        logger.warning("Signup: database pool not ready; sheets not restored")
+
+    async def _restore_signup_sheets(self):
+        stored_sheets = await db.get_all_signup_sheets()
+        for stored in stored_sheets:
+            view = SignupView.from_stored(stored)
+            _register_signup_view(self.bot, view)
+        if stored_sheets:
+            logger.info("Restored %d signup sheet(s)", len(stored_sheets))
 
     @commands.command(
         name="signup",
@@ -249,10 +377,21 @@ class SignupCog(commands.Cog):
             await ctx.send("Title must be 256 characters or fewer.")
             return
 
-        view = SignupView(
-            title, ctx.author.id, ctx.author.display_name, cap=cap
+        message = await ctx.send(
+            embed=build_empty_signup_embed(
+                title, ctx.author.display_name, cap=cap
+            )
         )
-        await ctx.send(embed=view.build_embed(), view=view)
+        view = SignupView(
+            title,
+            ctx.author.id,
+            ctx.author.display_name,
+            ctx.channel.id,
+            message.id,
+            cap=cap,
+        )
+        await message.edit(embed=view.build_embed(), view=view)
+        await _publish_signup(self.bot, view)
 
 
 async def setup(bot):
