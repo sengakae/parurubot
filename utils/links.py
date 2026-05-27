@@ -8,18 +8,24 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
+class CustomClientRequest(aiohttp.ClientRequest):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_field_size = 32768
+
+
 def extract_links(text: str):
     """Find all http/https URLs in text."""
     if not text:
         return []
-    url_pattern = r'(https?://\S+)'
+    url_pattern = r"(https?://\S+)"
     return re.findall(url_pattern, text)
 
 
 async def download_image_from_url(url: str):
     """Download an image from a URL if it is an actual image."""
     try:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(request_class=CustomClientRequest) as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
                     logger.info(f"Failed to fetch {url}, status {resp.status}")
@@ -27,7 +33,9 @@ async def download_image_from_url(url: str):
 
                 content_type = resp.headers.get("Content-Type", "")
                 if not content_type.startswith("image/"):
-                    logger.info(f"URL is not an image: {url} (Content-Type: {content_type})")
+                    logger.info(
+                        f"URL is not an image: {url} (Content-Type: {content_type})"
+                    )
                     return None
 
                 data = await resp.read()
@@ -63,12 +71,12 @@ async def collect_images_from_links(content):
 async def collect_images_from_message(content, attachments=None):
     """Collect all images from a single message"""
     images = []
-    
+
     if attachments:
         images.extend(await collect_images_from_attachments(attachments))
-    
+
     images.extend(await collect_images_from_links(content))
-    
+
     return images
 
 
@@ -77,7 +85,7 @@ def extract_youtube_urls(text: str):
     if not text:
         return [], text
 
-    youtube_pattern = r'(https?://(?:www\.)?(?:youtube\.com/watch\?v=[\w-]+|youtu\.be/[\w-]+|youtube\.com/embed/[\w-]+|youtube\.com/v/[\w-]+))'
+    youtube_pattern = r"(https?://(?:www\.)?(?:youtube\.com/watch\?v=[\w-]+|youtu\.be/[\w-]+|youtube\.com/embed/[\w-]+|youtube\.com/v/[\w-]+))"
 
     matches = re.findall(youtube_pattern, text)
     urls = []
