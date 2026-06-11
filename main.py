@@ -8,11 +8,11 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config import CHAR_LIMIT
 from db import get_quote_by_key, init_db
 from history import add_message_to_history, get_channel_history
 from utils.ai import chat_with_ai, convert_pil_to_part, convert_video_to_part
 from utils.links import collect_images_from_message, extract_youtube_urls
+from utils.messages import split_message
 from utils.notes import load_personal_notes, search_personal_notes
 
 logging.basicConfig(
@@ -28,7 +28,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 MAX_IMAGES = 10
 MAX_VIDEOS = 1
-AI_TIMEOUT = 180
+AI_TIMEOUT = 300
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -131,17 +131,23 @@ async def handle_ai_chat(message):
 
         """Check replied message"""
         if message.reference:
-            replied_msg = (
-                message.reference.resolved
-                or await message.channel.fetch_message(message.reference.message_id)
-            )
-            urls, stripped_text = extract_youtube_urls(replied_msg.content)
-            current_videos.extend(urls)
-            current_images.extend(
-                await collect_images_from_message(
-                    stripped_text, replied_msg.attachments
+            try:
+                replied_msg = message.reference.resolved
+                if replied_msg is None:
+                    replied_msg = await message.channel.fetch_message(
+                        message.reference.message_id
+                    )
+                urls, stripped_text = extract_youtube_urls(replied_msg.content)
+                current_videos.extend(urls)
+                current_images.extend(
+                    await collect_images_from_message(
+                        stripped_text, replied_msg.attachments
+                    )
                 )
-            )
+            except discord.NotFound:
+                logger.warning("Replied message not found, skipping reply context")
+            except discord.HTTPException as e:
+                logger.warning(f"Could not fetch replied message: {e}")
 
         if current_images:
             logger.info(f"Found {len(current_images)} images")
@@ -149,9 +155,13 @@ async def handle_ai_chat(message):
         if current_videos:
             logger.info(f"Found {len(current_videos)} YouTube URLs: {current_videos}")
 
+        if not cleaned_content and not current_images and not current_videos:
+            await message.channel.send("you gotta say something tho")
+            return
+
         if len(current_images) > MAX_IMAGES:
             logger.info(f"Limiting images from {len(current_images)} to {MAX_IMAGES}")
-            current_images = current_images[: MAX_IMAGES - len(current_images)]
+            current_images = current_images[:MAX_IMAGES]
 
         if len(current_videos) > MAX_VIDEOS:
             logger.info(
@@ -164,46 +174,30 @@ async def handle_ai_chat(message):
 
         if history_messages:
             conversation_parts = [{"text": "Here's the recent conversation context:"}]
-            added_media = bool(current_images or current_videos)
+            skip_history_media = bool(current_images or current_videos)
+            last_media_index = None
+            if not skip_history_media:
+                last_media_index = next(
+                    (
+                        i
+                        for i in range(len(history_messages) - 1, -1, -1)
+                        if history_messages[i]["has_media"]
+                    ),
+                    None,
+                )
 
-            for msg in history_messages:
+            for i, msg in enumerate(history_messages):
                 if msg["has_media"]:
-                    if added_media:
+                    if skip_history_media or i != last_media_index:
                         continue
 
                     conversation_parts.append(
                         {"text": f"{msg['author']} shared media:"}
                     )
-
-                    last_media_index = next(
-                        (
-                            i
-                            for i in range(len(history_messages) - 1, -1, -1)
-                            if history_messages[i]["has_media"]
-                        ),
-                        None,
-                    )
-
-                    for i, msg in enumerate(history_messages):
-                        if msg["has_media"]:
-                            if i != last_media_index:
-                                continue
-
-                            conversation_parts.append(
-                                {"text": f"{msg['author']} shared media:"}
-                            )
-
-                            for img in msg["images"]:
-                                conversation_parts.append(convert_pil_to_part(img))
-
-                            for vid in msg["videos"]:
-                                conversation_parts.append(convert_video_to_part(vid))
-
-                        else:
-                            conversation_parts.append(
-                                {"text": f"{msg['author']}: {msg['content']}"}
-                            )
-
+                    for img in msg["images"]:
+                        conversation_parts.append(convert_pil_to_part(img))
+                    for vid in msg["videos"]:
+                        conversation_parts.append(convert_video_to_part(vid))
                 else:
                     conversation_parts.append(
                         {"text": f"{msg['author']}: {msg['content']}"}
@@ -227,7 +221,6 @@ async def handle_ai_chat(message):
                         cleaned_content,
                         history_context,
                         notes_context,
-                        True,
                         current_images,
                         current_videos,
                     ),
@@ -250,10 +243,8 @@ async def handle_ai_chat(message):
             videos=current_videos,
         )
 
-        if len(response_text) > CHAR_LIMIT:
-            await message.channel.send("whoa that's way too much text, my brain hurts!")
-        else:
-            await message.channel.send(response_text)
+        for chunk in split_message(response_text):
+            await message.channel.send(chunk)
 
     except Exception as e:
         logger.exception(f"Error generating response: {e}")

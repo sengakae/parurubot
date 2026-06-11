@@ -1,7 +1,7 @@
 import io
 import json
 import logging
-import re
+import time
 
 from google import genai
 from google.genai import types
@@ -16,6 +16,63 @@ grounding_config = types.GenerateContentConfig(tools=[grounding_tool])
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.5-flash"
+MAX_API_RETRIES = 3
+
+
+def extract_response_text(response) -> str:
+    try:
+        text = response.text
+        if text:
+            return text
+    except (ValueError, AttributeError) as e:
+        logger.warning(f"Could not read response.text: {e}")
+
+    for candidate in getattr(response, "candidates", None) or []:
+        content = getattr(candidate, "content", None)
+        if not content or not content.parts:
+            continue
+        text_parts = [part.text for part in content.parts if getattr(part, "text", None)]
+        if text_parts:
+            return "".join(text_parts)
+
+    return "No response generated."
+
+
+def _is_retryable_error(error: Exception) -> bool:
+    message = str(error).lower()
+    retry_markers = (
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "resource_exhausted",
+        "rate limit",
+        "timeout",
+        "temporarily unavailable",
+        "internal error",
+    )
+    return any(marker in message for marker in retry_markers)
+
+
+def generate_content_with_retry(**kwargs):
+    last_error = None
+    for attempt in range(MAX_API_RETRIES):
+        try:
+            response = client.models.generate_content(**kwargs)
+            return extract_response_text(response)
+        except Exception as e:
+            last_error = e
+            if attempt == MAX_API_RETRIES - 1 or not _is_retryable_error(e):
+                raise
+            delay = 2**attempt
+            logger.warning(
+                f"Gemini request failed (attempt {attempt + 1}/{MAX_API_RETRIES}): {e}. "
+                f"Retrying in {delay}s..."
+            )
+            time.sleep(delay)
+
+    raise last_error
 
 
 def summarize_channel(messages):
@@ -43,8 +100,7 @@ def summarize_channel(messages):
         f"Here's the conversation:\n\n{conversation_text}"
     )
 
-    response = client.models.generate_content(model=MODEL, contents=summary_prompt)
-    text = response.text or "No summary generated."
+    text = generate_content_with_retry(model=MODEL, contents=summary_prompt)
 
     if len(text) > CHAR_LIMIT:
         text = text[: CHAR_LIMIT - 3] + "..."
@@ -72,14 +128,10 @@ def chat_with_ai(
     cleaned_content,
     history_context="",
     notes_context="",
-    needs_web_search=False,
     images=None,
     videos=None,
 ):
-    """
-    Generate a response from the AI given user input, optional history, and notes.
-    Handles both regular and web-search style prompts.
-    """
+    """Generate a response from the AI given user input, optional history, and notes."""
 
     system_message = f"{SYSTEM_PROMPT}{notes_context}"
 
@@ -106,42 +158,17 @@ def chat_with_ai(
 
     conversation.append({"role": "user", "parts": current_prompt})
 
-    if needs_web_search:
-        logger.info("Using web search model for current information")
-        grounding_tool = types.Tool(google_search=types.GoogleSearch())
-        config = types.GenerateContentConfig(
-            tools=[grounding_tool],
-            system_instruction=system_message
-        )
-    else:
-        logger.info("Using regular model for conversation")
-
-        config = types.GenerateContentConfig(
-            system_instruction=system_message
-        )
-
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=conversation,
-        config=config
+    logger.info("Using web search for response")
+    config = types.GenerateContentConfig(
+        tools=[types.Tool(google_search=types.GoogleSearch())],
+        system_instruction=system_message,
     )
 
-    text = response.text or "No response generated."
-
-    if len(text) > CHAR_LIMIT:
-        logger.info(
-            f"Response too long ({len(text)} chars), truncating to {CHAR_LIMIT}"
-        )
-        truncated = text[: CHAR_LIMIT - 3]
-        last_punct = max(
-            truncated.rfind("."), truncated.rfind("!"), truncated.rfind("?")
-        )
-        if last_punct > CHAR_LIMIT * 0.8:
-            text = truncated[: last_punct + 1]
-        else:
-            text = truncated + "..."
-
-    return text
+    return generate_content_with_retry(
+        model=MODEL,
+        contents=conversation,
+        config=config,
+    )
 
 
 def generate_quiz_question(level: str, category: str):
