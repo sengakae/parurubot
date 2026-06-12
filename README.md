@@ -153,6 +153,7 @@ discord-bot/
   - **Datetime with timezone**: `2026-05-31T16:00PDT` (seconds optional, e.g. `...T16:00:00PDT`)
   - Supported abbreviations include `UTC`, `GMT`, `PDT`/`PST`, `MDT`/`MST`, `CDT`/`CST`, `EDT`/`EST`, `BST`, `CET`/`CEST`, `JST`, `KST`, `HKT`, and ISO offsets (`Z` or `+00:00`)
   - Reminders are stored in the database and delivered after a bot restart
+- **`!timers`** - List the next 5 upcoming reminders across all channels, with countdown, message, user, and channel
 
 ## Configuration
 
