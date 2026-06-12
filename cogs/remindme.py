@@ -174,6 +174,32 @@ def format_remind_at(remind_at_utc: datetime, time_input: str) -> str:
     return _friendly_datetime(utc, "UTC")
 
 
+def format_time_until(remind_at_utc: datetime) -> str:
+    now = datetime.now(timezone.utc)
+    if remind_at_utc.tzinfo is None:
+        remind_at_utc = remind_at_utc.replace(tzinfo=timezone.utc)
+    else:
+        remind_at_utc = remind_at_utc.astimezone(timezone.utc)
+
+    total_seconds = int((remind_at_utc - now).total_seconds())
+    if total_seconds <= 0:
+        return "now"
+
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds and not parts:
+        parts.append(f"{seconds}s")
+    return "in " + " ".join(parts) if parts else "in less than a minute"
+
+
 class RemindMeCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -308,6 +334,33 @@ class RemindMeCog(commands.Cog):
 
         when = format_remind_at(remind_at, time_str)
         await ctx.send(f"Got it — I'll remind you {when}: **{message}**")
+
+    @commands.command(
+        name="timers",
+        help="List the next 5 upcoming reminders",
+    )
+    async def timers(self, ctx):
+        rows = await db.get_upcoming_reminders(limit=5)
+        if not rows:
+            await ctx.send("No upcoming reminders.")
+            return
+
+        lines = ["**Upcoming reminders**"]
+        for i, row in enumerate(rows, start=1):
+            remind_at = row["remind_at"]
+            if remind_at.tzinfo is None:
+                remind_at = remind_at.replace(tzinfo=timezone.utc)
+            else:
+                remind_at = remind_at.astimezone(timezone.utc)
+
+            when = format_time_until(remind_at)
+            user = f"<@{row['user_id']}>"
+            channel = f"<#{row['channel_id']}>"
+            lines.append(
+                f"{i}. {when} — **{row['message']}** ({user}, {channel})"
+            )
+
+        await ctx.send("\n".join(lines))
 
 
 async def setup(bot):

@@ -118,6 +118,19 @@ async def get_all_reminders():
         return await conn.fetch("SELECT * FROM reminders ORDER BY remind_at")
 
 
+async def get_upcoming_reminders(limit=5):
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            """
+            SELECT * FROM reminders
+            WHERE remind_at > NOW()
+            ORDER BY remind_at
+            LIMIT $1
+            """,
+            limit,
+        )
+
+
 def _parse_tasklist_tasks(raw):
     if isinstance(raw, str):
         return json.loads(raw)
