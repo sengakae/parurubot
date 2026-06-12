@@ -286,6 +286,22 @@ class RemindMeCog(commands.Cog):
 
         await channel.send(f"{mention} **Reminder:** {message}")
 
+    async def _user_label(self, user_id: int, guild) -> str:
+        if guild:
+            member = guild.get_member(user_id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(user_id)
+                except Exception:
+                    member = None
+            if member:
+                return member.display_name
+        try:
+            user = await self.bot.fetch_user(user_id)
+            return user.global_name or user.name
+        except Exception:
+            return f"user {user_id}"
+
     @commands.command(
         name="remindme",
         help="Set a reminder: !remindme <message> <time> (e.g. 2h15m or 2026-05-31T16:00PDT)",
@@ -354,7 +370,7 @@ class RemindMeCog(commands.Cog):
                 remind_at = remind_at.astimezone(timezone.utc)
 
             when = format_time_until(remind_at)
-            user = f"<@{row['user_id']}>"
+            user = await self._user_label(row["user_id"], ctx.guild)
             channel = f"<#{row['channel_id']}>"
             lines.append(
                 f"{i}. {when} — **{row['message']}** ({user}, {channel})"
