@@ -149,11 +149,14 @@ discord-bot/
 
 ### Reminders
 - **`!remindme <message> <time>`** - Schedule a reminder in the current channel
-  - **Countdown**: `30m`, `2h15m`, `1d2h` (days/hours/minutes/seconds)
-  - **Datetime with timezone**: `2026-05-31T16:00PDT` (seconds optional, e.g. `...T16:00:00PDT`)
-  - Supported abbreviations include `UTC`, `GMT`, `PDT`/`PST`, `MDT`/`MST`, `CDT`/`CST`, `EDT`/`EST`, `BST`, `CET`/`CEST`, `JST`, `KST`, `HKT`, and ISO offsets (`Z` or `+00:00`)
-  - Reminders are stored in the database and delivered after a bot restart
-- **`!timers`** - List the next 5 upcoming reminders across all channels, with countdown, message, user, and channel
+  - **Countdown**: `30m`, `2h15m`, `1d2h` (supports combinations of days, hours, minutes, and seconds)
+  - **Datetime with timezone**: `YYYY-MM-DDTHH:MM[TZ]` (seconds are optional, e.g., `2026-07-25T16:00PDT` or `2026-09-12T09:30:00KST`)
+  - **Supported Timezones**: 
+    - Full ISO offsets (`Z` or `+00:00`)
+    - Regional abbreviations mapped dynamically to geographical `ZoneInfo` standard locations (e.g., `PDT`/`PST` maps to `America/Los_Angeles`, `CEST`/`CET` to `Europe/Paris`, `JST` to `Asia/Tokyo`, etc.)
+    - Fallback fixed hour offsets (`_FIXED_OFFSET_HOURS`) if specific timezone database entries are unavailable
+  - Reminders are securely saved to the database and will be delivered even if the bot restarts.
+- **`!timers`** - List the next 5 upcoming reminders across all channels, complete with an interactive Discord relative countdown timestamp, the original message, the target user, and the channel location.
 
 ## Configuration
 

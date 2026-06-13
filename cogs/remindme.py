@@ -129,75 +129,12 @@ def parse_remind_time(value: str) -> datetime | None:
     return None
 
 
-def _friendly_datetime(dt: datetime, tz_label: str) -> str:
-    """Human-readable time for Discord messages (avoids :NN: emoji parsing in ISO strings)."""
-    time_part = dt.strftime("%I:%M %p").lstrip("0")
-    return f"on {dt.strftime('%B %d, %Y')} at {time_part} {tz_label}"
-
-
-def format_remind_at(remind_at_utc: datetime, time_input: str) -> str:
-    countdown = parse_countdown(time_input)
-    if countdown is not None:
-        total_seconds = int(countdown.total_seconds())
-        days, rem = divmod(total_seconds, 86400)
-        hours, rem = divmod(rem, 3600)
-        minutes, seconds = divmod(rem, 60)
-        parts = []
-        if days:
-            parts.append(f"{days}d")
-        if hours:
-            parts.append(f"{hours}h")
-        if minutes:
-            parts.append(f"{minutes}m")
-        if seconds:
-            parts.append(f"{seconds}s")
-        return "in " + " ".join(parts)
-
-    if abbrev_match := _ISO_TZ_ABBREV_RE.match(time_input.strip()):
-        dt_str, tz_token = abbrev_match.groups()
-        parsed = _to_utc_from_local_string(dt_str, tz_token)
-        if parsed is not None:
-            tz_key = tz_token.upper()
-            offset_hours = _FIXED_OFFSET_HOURS.get(tz_key)
-            if offset_hours is not None:
-                local = parsed.astimezone(timezone(timedelta(hours=offset_hours)))
-            else:
-                try:
-                    local = parsed.astimezone(
-                        ZoneInfo(_TZ_ABBREVS.get(tz_key, tz_token))
-                    )
-                except ZoneInfoNotFoundError:
-                    local = parsed
-            return _friendly_datetime(local, tz_token.upper())
-
-    utc = remind_at_utc.astimezone(timezone.utc)
-    return _friendly_datetime(utc, "UTC")
-
-
-def format_time_until(remind_at_utc: datetime) -> str:
-    now = datetime.now(timezone.utc)
-    if remind_at_utc.tzinfo is None:
-        remind_at_utc = remind_at_utc.replace(tzinfo=timezone.utc)
+def discord_timestamp(dt: datetime, style: str = "R") -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     else:
-        remind_at_utc = remind_at_utc.astimezone(timezone.utc)
-
-    total_seconds = int((remind_at_utc - now).total_seconds())
-    if total_seconds <= 0:
-        return "now"
-
-    days, rem = divmod(total_seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes, seconds = divmod(rem, 60)
-    parts = []
-    if days:
-        parts.append(f"{days}d")
-    if hours:
-        parts.append(f"{hours}h")
-    if minutes:
-        parts.append(f"{minutes}m")
-    if seconds and not parts:
-        parts.append(f"{seconds}s")
-    return "in " + " ".join(parts) if parts else "in less than a minute"
+        dt = dt.astimezone(timezone.utc)
+    return f"<t:{int(dt.timestamp())}:{style}>"
 
 
 class RemindMeCog(commands.Cog):
@@ -348,7 +285,7 @@ class RemindMeCog(commands.Cog):
             remind_at,
         )
 
-        when = format_remind_at(remind_at, time_str)
+        when = discord_timestamp(remind_at)
         await ctx.send(f"Got it — I'll remind you {when}: **{message}**")
 
     @commands.command(
@@ -369,7 +306,7 @@ class RemindMeCog(commands.Cog):
             else:
                 remind_at = remind_at.astimezone(timezone.utc)
 
-            when = format_time_until(remind_at)
+            when = discord_timestamp(remind_at)
             user = await self._user_label(row["user_id"], ctx.guild)
             channel = f"<#{row['channel_id']}>"
             lines.append(
