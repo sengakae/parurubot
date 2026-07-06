@@ -31,7 +31,9 @@ def extract_response_text(response) -> str:
         content = getattr(candidate, "content", None)
         if not content or not content.parts:
             continue
-        text_parts = [part.text for part in content.parts if getattr(part, "text", None)]
+        text_parts = [
+            part.text for part in content.parts if getattr(part, "text", None)
+        ]
         if text_parts:
             return "".join(text_parts)
 
@@ -145,7 +147,10 @@ def chat_with_ai(
     conversation = []
 
     if history_context:
-        conversation.append(history_context)
+        if isinstance(history_context, dict):
+            conversation.append(history_context)
+        elif isinstance(history_context, list):
+            conversation.extend(history_context)
 
     current_prompt = [{"text": cleaned_content}]
     if images:
@@ -164,11 +169,31 @@ def chat_with_ai(
         system_instruction=system_message,
     )
 
-    return generate_content_with_retry(
+    response = generate_content_with_retry(
         model=MODEL,
         contents=conversation,
         config=config,
     )
+
+    if hasattr(response, "text"):
+        final_text = response.text
+    else:
+        final_text = str(response)
+
+    if "tool_code" in final_text or "print(" in final_text:
+        logger.warning("Internal tool strings leaked, stripping out code remnants.")
+        lines = final_text.split("\n")
+        clean_lines = [
+            l
+            for l in lines
+            if not any(
+                x in l
+                for x in ["tool_code", "print(", "google_search.search", "thought"]
+            )
+        ]
+        final_text = "\n".join(clean_lines).strip()
+
+    return final_text.lower().strip()
 
 
 def generate_quiz_question(level: str, category: str):
@@ -176,7 +201,7 @@ def generate_quiz_question(level: str, category: str):
     Generates a JLPT/TOPIK/HSK question using Gemini.
     Returns a dict with: question, options (dict), correct (char), explanation.
     """
-    
+
     system_instruction = (
         "You are an expert language tutor for JLPT, TOPIK, and HSK. "
         "Your task is to provide a multiple-choice question in JSON format. "
@@ -199,25 +224,25 @@ def generate_quiz_question(level: str, category: str):
             contents=user_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                response_mime_type="application/json"
-            )
+                response_mime_type="application/json",
+            ),
         )
 
         raw_content = response.text
-        
+
         data = json.loads(raw_content)
-        
+
         required_keys = ["question", "options", "correct", "explanation"]
         if all(key in data for key in required_keys):
             return data
         else:
             raise ValueError("Missing keys in AI response")
-            
+
     except Exception as e:
         logger.error(f"Quiz Generation Error: {e}")
         return {
             "question": "Could not generate a question at this time.",
             "options": {"A": "Error", "B": "Error", "C": "Error", "D": "Error"},
             "correct": "A",
-            "explanation": f"The AI encountered an issue: {str(e)}"
+            "explanation": f"The AI encountered an issue: {str(e)}",
         }
