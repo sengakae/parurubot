@@ -9,6 +9,8 @@ OWNER_ID = int(os.getenv("OWNER_ID"))
 REPO_PATH = os.getenv("REPO_PATH", "/home/sengakae/parurubot")
 RESTART_FLAG_PATH = os.path.join(REPO_PATH, ".restart_flag.json")
 
+STEPS = ["Pulling latest changes", "Checking for changes", "Restarting service"]
+
 
 def run_git(args):
     return subprocess.run(
@@ -18,6 +20,22 @@ def run_git(args):
         text=True,
         timeout=30,
     )
+
+
+def render_steps(done_steps, current_step=None, extra_lines=None):
+    """Build the status block: [x] for done, [~] for current, [ ] for pending."""
+    lines = []
+    for step in STEPS:
+        if step in done_steps:
+            lines.append(f"[x] {step}")
+        elif step == current_step:
+            lines.append(f"[~] {step}...")
+        else:
+            lines.append(f"[ ] {step}")
+    block = "\n".join(lines)
+    if extra_lines:
+        block += "\n\n" + extra_lines
+    return block
 
 
 class Update(commands.Cog):
@@ -34,8 +52,12 @@ class Update(commands.Cog):
                 data = json.load(f)
             channel = self.bot.get_channel(data["channel_id"])
             if channel:
+                message = await channel.fetch_message(data["message_id"])
                 new_hash = run_git(["rev-parse", "--short", "HEAD"]).stdout.strip()
-                await channel.send(f"Back online on `{new_hash}`.")
+                final_block = render_steps(
+                    STEPS, extra_lines=f"Restart complete — now on `{new_hash}`"
+                )
+                await message.edit(content=final_block)
         except Exception as e:
             print(f"Failed to send restart notification: {e}")
         finally:
@@ -46,7 +68,7 @@ class Update(commands.Cog):
         if ctx.author.id != OWNER_ID:
             return
 
-        await ctx.send("Pulling latest changes...")
+        status_msg = await ctx.send(render_steps([], current_step="Pulling latest changes"))
 
         before = run_git(["rev-parse", "HEAD"])
         old_hash = before.stdout.strip()
@@ -54,31 +76,54 @@ class Update(commands.Cog):
         try:
             pull_result = run_git(["pull"])
         except subprocess.TimeoutExpired:
-            await ctx.send("`git pull` timed out.")
+            await status_msg.edit(
+                content=render_steps([], extra_lines="git pull timed out.")
+            )
             return
 
         if pull_result.returncode != 0:
-            await ctx.send(f"git pull failed:\n```{pull_result.stderr[:1900]}```")
+            await status_msg.edit(
+                content=render_steps(
+                    [],
+                    extra_lines=f"git pull failed:\n```{pull_result.stderr[:1500]}```",
+                )
+            )
             return
+
+        await status_msg.edit(
+            content=render_steps(
+                ["Pulling latest changes"], current_step="Checking for changes"
+            )
+        )
 
         after = run_git(["rev-parse", "HEAD"])
         new_hash = after.stdout.strip()
 
         if old_hash == new_hash:
-            await ctx.send("Already up to date — no changes.")
+            await status_msg.edit(
+                content=render_steps(
+                    ["Pulling latest changes", "Checking for changes"],
+                    extra_lines="Already up to date — no changes.",
+                )
+            )
             return
 
         diffstat = run_git(["diff", "--stat", f"{old_hash}..{new_hash}"])
         stat_output = diffstat.stdout.strip() or "(no diffstat available)"
 
-        await ctx.send(
-            f"Updated `{old_hash[:7]}` → `{new_hash[:7]}`:\n```diff\n{stat_output[:1900]}\n```"
+        await status_msg.edit(
+            content=render_steps(
+                ["Pulling latest changes", "Checking for changes"],
+                current_step="Restarting service",
+                extra_lines=(
+                    f"Updated `{old_hash[:7]}` -> `{new_hash[:7]}`:\n"
+                    f"```diff\n{stat_output[:1200]}\n```"
+                ),
+            )
         )
 
-        await ctx.send("Restarting service...")
-
         with open(RESTART_FLAG_PATH, "w") as f:
-            json.dump({"channel_id": ctx.channel.id}, f)
+            json.dump({"channel_id": ctx.channel.id, "message_id": status_msg.id}, f)
 
         await asyncio.sleep(1)
         subprocess.Popen(["sudo", "systemctl", "restart", "parurubot.service"])
