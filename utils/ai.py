@@ -6,13 +6,17 @@ import time
 from google import genai
 from google.genai import types
 
-from config import CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT, VIDEO_SUMMARY_PROMPT
+from config import (CHAR_LIMIT, GEMINI_API_KEY, SYSTEM_PROMPT,
+                    VIDEO_SUMMARY_PROMPT)
 
 logger = logging.getLogger(__name__)
 
 grounding_tool = types.Tool(google_search=types.GoogleSearch())
 
-grounding_config = types.GenerateContentConfig(tools=[grounding_tool])
+grounding_config = types.GenerateContentConfig(
+    tools=[grounding_tool],
+    thinking_config=types.ThinkingConfig(include_thoughts=False),
+)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.5-flash"
@@ -32,7 +36,9 @@ def extract_response_text(response) -> str:
         if not content or not content.parts:
             continue
         text_parts = [
-            part.text for part in content.parts if getattr(part, "text", None)
+            part.text
+            for part in content.parts
+            if getattr(part, "text", None) and not getattr(part, "thought", False)
         ]
         if text_parts:
             return "".join(text_parts)
@@ -102,7 +108,13 @@ def summarize_channel(messages):
         f"Here's the conversation:\n\n{conversation_text}"
     )
 
-    text = generate_content_with_retry(model=MODEL, contents=summary_prompt)
+    text = generate_content_with_retry(
+        model=MODEL,
+        contents=summary_prompt,
+        config=types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(include_thoughts=False)
+        ),
+    )
 
     if len(text) > CHAR_LIMIT:
         text = text[: CHAR_LIMIT - 3] + "..."
@@ -167,18 +179,14 @@ def chat_with_ai(
     config = types.GenerateContentConfig(
         tools=[types.Tool(google_search=types.GoogleSearch())],
         system_instruction=system_message,
+        thinking_config=types.ThinkingConfig(include_thoughts=False),
     )
 
-    response = generate_content_with_retry(
+    final_text = generate_content_with_retry(
         model=MODEL,
         contents=conversation,
         config=config,
     )
-
-    if hasattr(response, "text"):
-        final_text = response.text
-    else:
-        final_text = str(response)
 
     if "tool_code" in final_text or "print(" in final_text:
         logger.warning("Internal tool strings leaked, stripping out code remnants.")
@@ -225,6 +233,7 @@ def generate_quiz_question(level: str, category: str):
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(include_thoughts=False),
             ),
         )
 
