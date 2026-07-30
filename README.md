@@ -26,6 +26,7 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 - **Interactive Checklists**: Build a to-do list with checkboxes and numbered toggle buttons; lists stay interactive after a bot restart
 - **Signup Sheets**: Create event signup lists with optional caps and +1 guests; sheets stay interactive after a bot restart
 - **Reminders**: Schedule channel reminders with countdowns or datetimes with timezone abbreviations
+- **Remote Deployment**: Pull the latest code from git and restart the bot service directly from Discord (owner-only)
 
 ## Quick Start
 
@@ -61,6 +62,8 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
    DATABASE_URL=postgresql://user:password@localhost:5432/discord_bot
    WEATHER_TOKEN=your_openweathermap_api_key
    GEMINI_API_KEY=your_gemini_api_key
+   OWNER_ID=your_discord_user_id
+   REPO_PATH=/absolute/path/to/parurubot
    ```
 
 5. **Database Setup**
@@ -83,7 +86,8 @@ discord-bot/
 │   ├── quotes.py         # Quote management commands
 │   ├── tasklist.py       # Interactive checklist (persistent)
 │   ├── signup.py         # Signup sheets (persistent)
-│   └── remindme.py       # Scheduled reminders (persistent)
+│   ├── remindme.py       # Scheduled reminders (persistent)
+│   └── update.py         # Owner-only git pull + service restart
 ├── utils/                  # Utility modules
 │   ├── ai.py             # AI chat and summarization
 │   ├── notes.py          # Personal notes management
@@ -158,6 +162,14 @@ discord-bot/
   - Reminders are securely saved to the database and will be delivered even if the bot restarts.
 - **`!timers`** - List the next 5 upcoming reminders across all channels, complete with an interactive Discord relative countdown timestamp, the original message, the target user, and the channel location.
 
+### Bot Deployment
+- **`!update`** - Owner-only. Pulls the latest changes from git and restarts the bot service
+  - Compares the commit hash before and after the pull; if nothing changed, reports "up to date" and skips the restart
+  - Posts a `git diff --stat` summary of changed files and line counts between the old and new commit
+  - Restarts the `parurubot.service` systemd unit via a scoped, passwordless `sudo systemctl restart` rule
+  - Only usable by the Discord user ID set as `OWNER_ID` in `.env`; ignored silently for anyone else
+  - Requires a sudoers rule (`/etc/sudoers.d/parurubot`) granting the bot's system user passwordless permission to restart only `parurubot.service`
+
 ## Configuration
 
 ### Personal Notes
@@ -213,3 +225,5 @@ async def setup(bot):
 - The `config.py` file is gitignored by default
 - Personal notes in the `notes/` folder are indexed but not automatically shared
 - Database credentials should be kept secure
+- `OWNER_ID` gates the `!update` command; keep it in `.env` rather than hardcoded, since it controls who can trigger a git pull and service restart
+- The sudoers rule for `!update` should be scoped to exactly `systemctl restart parurubot.service` — avoid granting broader sudo access to the bot's system user
