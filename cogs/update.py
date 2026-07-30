@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import subprocess
 
@@ -6,6 +7,7 @@ from discord.ext import commands
 
 OWNER_ID = int(os.getenv("OWNER_ID"))
 REPO_PATH = os.getenv("REPO_PATH", "/home/sengakae/parurubot")
+RESTART_FLAG_PATH = os.path.join(REPO_PATH, ".restart_flag.json")
 
 
 def run_git(args):
@@ -18,9 +20,26 @@ def run_git(args):
     )
 
 
-class UpdateCog(commands.Cog):
+class Update(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if not os.path.exists(RESTART_FLAG_PATH):
+            return
+
+        try:
+            with open(RESTART_FLAG_PATH, "r") as f:
+                data = json.load(f)
+            channel = self.bot.get_channel(data["channel_id"])
+            if channel:
+                new_hash = run_git(["rev-parse", "--short", "HEAD"]).stdout.strip()
+                await channel.send(f"Back online on `{new_hash}`.")
+        except Exception as e:
+            print(f"Failed to send restart notification: {e}")
+        finally:
+            os.remove(RESTART_FLAG_PATH)
 
     @commands.command(name="update")
     async def update(self, ctx):
@@ -53,13 +72,17 @@ class UpdateCog(commands.Cog):
         stat_output = diffstat.stdout.strip() or "(no diffstat available)"
 
         await ctx.send(
-            f"Updated `{old_hash[:7]}` → `{new_hash[:7]}`:\n```{stat_output[:1900]}```"
+            f"Updated `{old_hash[:7]}` → `{new_hash[:7]}`:\n```diff\n{stat_output[:1900]}\n```"
         )
 
         await ctx.send("Restarting service...")
+
+        with open(RESTART_FLAG_PATH, "w") as f:
+            json.dump({"channel_id": ctx.channel.id}, f)
+
         await asyncio.sleep(1)
         subprocess.Popen(["sudo", "systemctl", "restart", "parurubot.service"])
 
 
 async def setup(bot):
-    await bot.add_cog(UpdateCog(bot))
+    await bot.add_cog(Update(bot))
