@@ -104,7 +104,7 @@ discord-bot/
 ## Commands
 
 ### AI Chat
-- **`paruru, [message]`** - Chat with the AI assistant
+- **`paruru, [message]`** - Chat with the AI bot
 
 ### Quote Management
 - **`!add [keyword] [quote]`** - Save a quote with a keyword
