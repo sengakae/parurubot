@@ -8,6 +8,16 @@ OWNER_ID = int(os.getenv("OWNER_ID"))
 REPO_PATH = os.getenv("REPO_PATH", "/home/sengakae/parurubot")
 
 
+def run_git(args):
+    return subprocess.run(
+        ["git"] + args,
+        cwd=REPO_PATH,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
 class Update(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -19,28 +29,32 @@ class Update(commands.Cog):
 
         await ctx.send("Pulling latest changes...")
 
+        before = run_git(["rev-parse", "HEAD"])
+        old_hash = before.stdout.strip()
+
         try:
-            result = subprocess.run(
-                ["git", "pull"],
-                cwd=REPO_PATH,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            pull_result = run_git(["pull"])
         except subprocess.TimeoutExpired:
             await ctx.send("`git pull` timed out.")
             return
 
-        if result.returncode != 0:
-            await ctx.send(f"git pull failed:\n```{result.stderr[:1900]}```")
+        if pull_result.returncode != 0:
+            await ctx.send(f"git pull failed:\n```{pull_result.stderr[:1900]}```")
             return
 
-        output = result.stdout.strip() or "Already up to date."
-        await ctx.send(f"Pulled:\n```{output[:1900]}```")
+        after = run_git(["rev-parse", "HEAD"])
+        new_hash = after.stdout.strip()
 
-        if "Already up to date." in output:
-            await ctx.send("No changes — skipping restart.")
+        if old_hash == new_hash:
+            await ctx.send("Already up to date — no changes.")
             return
+
+        diffstat = run_git(["diff", "--stat", f"{old_hash}..{new_hash}"])
+        stat_output = diffstat.stdout.strip() or "(no diffstat available)"
+
+        await ctx.send(
+            f"Updated `{old_hash[:7]}` → `{new_hash[:7]}`:\n```{stat_output[:1900]}```"
+        )
 
         await ctx.send("Restarting service...")
         await asyncio.sleep(1)
