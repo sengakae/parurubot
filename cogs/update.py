@@ -18,7 +18,7 @@ def run_git(args):
     )
 
 
-class Update(commands.Cog):
+class UpdateCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
@@ -62,4 +62,4 @@ class Update(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(Update(bot))
+    await bot.add_cog(UpdateCog(bot))
