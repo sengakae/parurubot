@@ -52,8 +52,6 @@ def cleanup_deleted_files():
         deleted_sources = set()
         
         for doc_id, metadata in zip(results["ids"], results["metadatas"]):
-            if metadata.get("type") not in {"txt", "csv", "json"}:
-                continue
             source = metadata.get("source", "")
             if source and source not in current_files:
                 chunks_to_remove.append(doc_id)
@@ -226,14 +224,9 @@ def search_personal_notes(query, n_results=3):
         metadatas = (results.get("metadatas") or [[]])[0] or []
 
         if documents:
-            sheet_matches = sum(
-                metadata.get("type") == "google_sheet"
-                for metadata in metadatas[: len(documents)]
-            )
             logger.info(
-                "Vector search returned %s results, including %s from Google Sheets",
+                "Vector search returned %s results",
                 len(documents),
-                sheet_matches,
             )
             relevant_info = []
             for doc in documents:
