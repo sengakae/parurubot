@@ -1,6 +1,8 @@
 chromadb
 discord.py
 google-genai
+google-auth
+google-cloud-secret-manager
 pandas
 requests
 python-dotenv

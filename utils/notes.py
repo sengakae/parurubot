@@ -52,6 +52,8 @@ def cleanup_deleted_files():
         deleted_sources = set()
         
         for doc_id, metadata in zip(results["ids"], results["metadatas"]):
+            if metadata.get("type") not in {"txt", "csv", "json"}:
+                continue
             source = metadata.get("source", "")
             if source and source not in current_files:
                 chunks_to_remove.append(doc_id)

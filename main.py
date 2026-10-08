@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from db import get_quote_by_key, init_db
 from history import add_message_to_history, get_channel_history
 from utils.ai import chat_with_ai, convert_pil_to_part, convert_video_to_part
+from utils.google_sheets import load_google_sheet
 from utils.links import collect_images_from_message, extract_youtube_urls
 from utils.messages import split_message
 from utils.notes import load_personal_notes, search_personal_notes
@@ -52,6 +53,7 @@ async def on_ready():
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, load_personal_notes)
+    await loop.run_in_executor(None, load_google_sheet)
 
     server_count = len(bot.guilds)
     for server in bot.guilds:

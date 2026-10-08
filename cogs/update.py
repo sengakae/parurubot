@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 
 from discord.ext import commands
 
@@ -9,7 +10,12 @@ OWNER_ID = int(os.getenv("OWNER_ID"))
 REPO_PATH = os.getenv("REPO_PATH", "/home/sengakae/parurubot")
 RESTART_FLAG_PATH = os.path.join(REPO_PATH, ".restart_flag.json")
 
-STEPS = ["Pulling latest changes", "Checking for changes", "Restarting service"]
+STEPS = [
+    "Pulling latest changes",
+    "Checking for changes",
+    "Installing dependencies",
+    "Restarting service",
+]
 
 
 def run_git(args):
@@ -22,10 +28,10 @@ def run_git(args):
     )
 
 
-def render_steps(done_steps, current_step=None, extra_lines=None):
+def render_steps(done_steps, current_step=None, extra_lines=None, steps=None):
     """Build the status block: [x] for done, [~] for current, [ ] for pending."""
     lines = []
-    for step in STEPS:
+    for step in steps or STEPS:
         if step in done_steps:
             lines.append(f"[x] {step}")
         elif step == current_step:
@@ -55,7 +61,8 @@ class Update(commands.Cog):
                 message = await channel.fetch_message(data["message_id"])
                 new_hash = run_git(["rev-parse", "--short", "HEAD"]).stdout.strip()
                 final_block = render_steps(
-                    STEPS, extra_lines=f"Restart complete — now on `{new_hash}`"
+                    data.get("steps", STEPS),
+                    extra_lines=f"Restart complete — now on `{new_hash}`",
                 )
                 await message.edit(content=final_block)
         except Exception as e:
@@ -111,19 +118,91 @@ class Update(commands.Cog):
         diffstat = run_git(["diff", "--stat", f"{old_hash}..{new_hash}"])
         stat_output = diffstat.stdout.strip() or "(no diffstat available)"
 
+        changed_files = run_git(
+            ["diff", "--name-only", f"{old_hash}..{new_hash}"]
+        )
+        dependencies_changed = "requirements.txt" in changed_files.stdout.splitlines()
+        update_steps = STEPS if dependencies_changed else [
+            step for step in STEPS if step != "Installing dependencies"
+        ]
+
+        done_steps = ["Pulling latest changes", "Checking for changes"]
+        if dependencies_changed:
+            await status_msg.edit(
+                content=render_steps(
+                    done_steps,
+                    current_step="Installing dependencies",
+                    steps=update_steps,
+                )
+            )
+            try:
+                install_process = await asyncio.create_subprocess_exec(
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "-r",
+                    "requirements.txt",
+                    cwd=REPO_PATH,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(
+                    install_process.communicate(), timeout=600
+                )
+            except asyncio.TimeoutError:
+                install_process.kill()
+                await install_process.communicate()
+                await status_msg.edit(
+                    content=render_steps(
+                        done_steps,
+                        extra_lines="Dependency installation timed out; service was not restarted.",
+                        steps=update_steps,
+                    )
+                )
+                return
+
+            if install_process.returncode != 0:
+                error_output = (stderr or stdout).decode(errors="replace")
+                await status_msg.edit(
+                    content=render_steps(
+                        done_steps,
+                        extra_lines=(
+                            "Dependency installation failed; service was not restarted:\n"
+                            f"```\n{error_output[-1200:]}\n```"
+                        ),
+                        steps=update_steps,
+                    )
+                )
+                return
+            done_steps.append("Installing dependencies")
+
         await status_msg.edit(
             content=render_steps(
-                ["Pulling latest changes", "Checking for changes"],
+                done_steps,
                 current_step="Restarting service",
                 extra_lines=(
                     f"Updated `{old_hash[:7]}` -> `{new_hash[:7]}`:\n"
                     f"```diff\n{stat_output[:1200]}\n```"
+                    + (
+                        "\nDependency installation skipped (requirements.txt unchanged)."
+                        if not dependencies_changed
+                        else ""
+                    )
                 ),
+                steps=update_steps,
             )
         )
 
         with open(RESTART_FLAG_PATH, "w") as f:
-            json.dump({"channel_id": ctx.channel.id, "message_id": status_msg.id}, f)
+            json.dump(
+                {
+                    "channel_id": ctx.channel.id,
+                    "message_id": status_msg.id,
+                    "steps": update_steps,
+                },
+                f,
+            )
 
         await asyncio.sleep(1)
         subprocess.Popen(["sudo", "systemctl", "restart", "parurubot.service"])

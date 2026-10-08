@@ -64,6 +64,9 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
    GEMINI_API_KEY=your_gemini_api_key
    OWNER_ID=your_discord_user_id
    REPO_PATH=/absolute/path/to/parurubot
+  GOOGLE_SHEETS_ID=your_spreadsheet_id
+  GOOGLE_SHEETS_RANGE=Sheet1!A:Z
+  GOOGLE_SHEETS_SECRET_ID=SHEETS_SERVICE_ACCOUNT_KEY
    ```
 
 5. **Database Setup**
@@ -165,6 +168,7 @@ discord-bot/
 ### Bot Deployment
 - **`!update`** - Owner-only. Pulls the latest changes from git and restarts the bot service
   - Compares the commit hash before and after the pull; if nothing changed, reports "up to date" and skips the restart
+  - Installs `requirements.txt` with the bot's active Python interpreter only when that file changed; if installation fails or times out, the service is not restarted
   - Posts a `git diff --stat` summary of changed files and line counts between the old and new commit
   - Restarts the `parurubot.service` systemd unit via a scoped, passwordless `sudo systemctl restart` rule
   - Only usable by the Discord user ID set as `OWNER_ID` in `.env`; ignored silently for anyone else
@@ -176,6 +180,10 @@ discord-bot/
 - Place `.txt` and `.csv` files in the `notes/` folder
 - Files are automatically indexed and searchable by the AI
 - Supports both text content and structured CSV data
+- Google Sheets ingestion is optional. Set `GOOGLE_SHEETS_ID`, `GOOGLE_SHEETS_RANGE`, and `GOOGLE_SHEETS_SECRET_ID` to index a range at startup into the same vector store
+- Store the service-account JSON as the payload of a Secret Manager secret, grant the bot's runtime identity Secret Manager Secret Accessor on that secret, and grant the service account viewer access to the spreadsheet
+- Enable both the Google Sheets API and Secret Manager API in the Google Cloud project; authentication to Secret Manager uses Application Default Credentials
+- For local development, configure Application Default Credentials with `gcloud auth application-default login` and grant that identity access to the secret; the bot's local `.env` should not contain or point to a downloaded key file
 
 ### System Prompts
 - Customize the bot's personality and behavior in `config.py`
@@ -212,6 +220,7 @@ async def setup(bot):
 - **discord.py** - Discord bot framework
 - **google-generativeai** - Google Gemini AI integration
 - **chromadb** - Vector database for notes
+- **google-auth** - Read-only service-account authentication for Google Sheets
 - **pandas** - CSV data processing
 - **requests** - HTTP requests for weather API
 - **python-dotenv** - Environment variable management
