@@ -168,7 +168,7 @@ discord-bot/
 ### Bot Deployment
 - **`!update`** - Owner-only. Pulls the latest changes from git and restarts the bot service
   - Compares the commit hash before and after the pull; if nothing changed, reports "up to date" and skips the restart
-  - Installs `requirements.txt` with the bot's active Python interpreter only when that file changed; if installation fails or times out, the service is not restarted
+  - Installs `requirements.txt` with the repository's `venv` Python only when that file changed; on GCP, the service should also launch with `venv/bin/python`. If installation fails or times out, the service is not restarted
   - Posts a `git diff --stat` summary of changed files and line counts between the old and new commit
   - Restarts the `parurubot.service` systemd unit via a scoped, passwordless `sudo systemctl restart` rule
   - Only usable by the Discord user ID set as `OWNER_ID` in `.env`; ignored silently for anyone else

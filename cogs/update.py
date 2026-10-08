@@ -1,8 +1,8 @@
 import asyncio
 import json
 import os
+import platform
 import subprocess
-import sys
 
 from discord.ext import commands
 
@@ -26,6 +26,12 @@ def run_git(args):
         text=True,
         timeout=30,
     )
+
+
+def get_venv_python():
+    if platform.system() == "Windows":
+        return os.path.join(REPO_PATH, "venv", "Scripts", "python.exe")
+    return os.path.join(REPO_PATH, "venv", "bin", "python")
 
 
 def render_steps(done_steps, current_step=None, extra_lines=None, steps=None):
@@ -128,6 +134,20 @@ class Update(commands.Cog):
 
         done_steps = ["Pulling latest changes", "Checking for changes"]
         if dependencies_changed:
+            venv_python = get_venv_python()
+            if not os.path.isfile(venv_python):
+                await status_msg.edit(
+                    content=render_steps(
+                        done_steps,
+                        extra_lines=(
+                            "Project virtual environment not found; service was not restarted. "
+                            f"Expected Python at `{venv_python}`."
+                        ),
+                        steps=update_steps,
+                    )
+                )
+                return
+
             await status_msg.edit(
                 content=render_steps(
                     done_steps,
@@ -137,7 +157,7 @@ class Update(commands.Cog):
             )
             try:
                 install_process = await asyncio.create_subprocess_exec(
-                    sys.executable,
+                    venv_python,
                     "-m",
                     "pip",
                     "install",
