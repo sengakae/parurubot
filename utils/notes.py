@@ -222,13 +222,26 @@ def search_personal_notes(query, n_results=3):
     """Search personal notes for relevant information"""
     try:
         results = collection.query(query_texts=[query], n_results=n_results)
+        documents = (results.get("documents") or [[]])[0] or []
+        metadatas = (results.get("metadatas") or [[]])[0] or []
 
-        if results["documents"] and results["documents"][0]:
+        if documents:
+            sheet_matches = sum(
+                metadata.get("type") == "google_sheet"
+                for metadata in metadatas[: len(documents)]
+            )
+            logger.info(
+                "Vector search returned %s results, including %s from Google Sheets",
+                len(documents),
+                sheet_matches,
+            )
             relevant_info = []
-            for doc, _ in zip(results["documents"][0], results["metadatas"][0]):
+            for doc in documents:
                 preview = doc[:400] + "..." if len(doc) > 400 else doc
                 relevant_info.append(preview)
             return "\n\n".join(relevant_info)
+        logger.info("Vector search returned no results")
         return None
-    except:
+    except Exception:
+        logger.exception("Vector search failed")
         return None

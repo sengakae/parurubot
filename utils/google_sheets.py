@@ -6,8 +6,8 @@ from urllib.parse import quote
 
 import google.auth
 from google.auth.transport.requests import AuthorizedSession
-from google.oauth2 import service_account
 from google.cloud import secretmanager
+from google.oauth2 import service_account
 
 from utils.chroma_client import collection
 
@@ -51,6 +51,7 @@ def load_google_sheet():
         return
 
     try:
+        logger.info("Fetching Google Sheet range %s", sheet_range)
         credentials = _load_sheet_credentials()
         session = AuthorizedSession(credentials)
         encoded_range = quote(sheet_range, safe="")
