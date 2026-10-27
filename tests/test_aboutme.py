@@ -69,3 +69,27 @@ def test_view_components_layout_b():
     assert asyncio.run(build([fact(1)])) == ["RemoveMemorySelect", "AddMemoryButton"]
     assert asyncio.run(build([])) == ["AddMemoryButton"]
     assert asyncio.run(build([name_row(1, "sengakae")])) == ["AddMemoryButton"]
+
+
+def test_view_timeout_disables_components():
+    import asyncio
+    from types import SimpleNamespace as NS
+
+    from cogs.memories import AboutMeView
+    from tests.fake_store import FakeStore
+
+    edits = []
+
+    class FakeMessage:
+        async def edit(self, **kwargs):
+            edits.append(kwargs)
+
+    async def scenario():
+        view = AboutMeView(NS(id=200, display_name="anto"), 1, [fact(1)], FakeStore())
+        view.message = FakeMessage()
+        await view.on_timeout()
+        return view
+
+    view = asyncio.run(scenario())
+    assert all(child.disabled for child in view.children)
+    assert edits and edits[0]["view"] is view

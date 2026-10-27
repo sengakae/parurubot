@@ -135,3 +135,37 @@ def test_reaction_failure_ignored(monkeypatch):
     monkeypatch.setattr(memories_mod, "extract_ops", fake_extract)
     asyncio.run(cog.process_guild(guild))
     assert not cog.queue.is_pending(1)
+
+
+def test_on_ready_waits_for_schema(monkeypatch):
+    import db
+
+    calls = []
+
+    async def fake_ensure(guild_id, store):
+        calls.append(guild_id)
+
+    monkeypatch.setattr(memories_mod, "ensure_locked_links", fake_ensure)
+    monkeypatch.setattr(db, "pool", object())
+    monkeypatch.setattr(db, "schema_ready", asyncio.Event())
+    cog = MemoriesCog(bot=NS(guilds=[NS(id=1)]), store=FakeStore())
+
+    async def scenario():
+        task = asyncio.create_task(cog.on_ready())
+        await asyncio.sleep(0.05)
+        assert calls == []  # pool exists but tables aren't created yet
+        db.schema_ready.set()
+        await task
+
+    asyncio.run(scenario())
+    assert calls == [1]
+
+
+def test_reply_to_bot_not_a_link_target():
+    from cogs.memories import _reply_author_id
+
+    reply_to_bot = NS(reference=NS(resolved=NS(author=NS(id=999, bot=True))))
+    reply_to_user = NS(reference=NS(resolved=NS(author=NS(id=200, bot=False))))
+    assert _reply_author_id(reply_to_bot) is None
+    assert _reply_author_id(reply_to_user) == 200
+    assert _reply_author_id(NS(reference=None)) is None

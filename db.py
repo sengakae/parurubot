@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import random
@@ -6,6 +7,8 @@ import secrets
 import asyncpg
 
 pool = None
+# Set once init_db has created every table (pool is set before that).
+schema_ready = asyncio.Event()
 
 
 async def init_db():
@@ -96,6 +99,7 @@ async def init_db():
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS memories_user_idx ON memories (guild_id, user_id)"
         )
+    schema_ready.set()
 
 
 async def add_quote(key, value):

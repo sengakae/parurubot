@@ -48,7 +48,9 @@ def _reply_author_id(message) -> int | None:
     reference = message.reference
     resolved = getattr(reference, "resolved", None) if reference else None
     author = getattr(resolved, "author", None)
-    return author.id if author else None
+    if author is None or author.bot:
+        return None
+    return author.id
 
 
 def page_slice(memories: list[dict], page: int) -> tuple[list[dict], int]:
@@ -149,6 +151,7 @@ class AboutMeView(discord.ui.View):
         self.memories = memories
         self.store = store
         self.page = 0
+        self.message = None
         self._build()
 
     def embed(self) -> discord.Embed:
@@ -172,6 +175,15 @@ class AboutMeView(discord.ui.View):
         self._build()
         await interaction.response.edit_message(embed=self.embed(), view=self)
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.owner.id:
             await interaction.response.send_message("this isn't yours", ephemeral=True)
@@ -182,7 +194,7 @@ class AboutMeView(discord.ui.View):
 async def send_aboutme(channel, member, store=db) -> None:
     memories = await store.get_user_memories(channel.guild.id, member.id)
     view = AboutMeView(member, channel.guild.id, memories, store)
-    await channel.send(embed=view.embed(), view=view)
+    view.message = await channel.send(embed=view.embed(), view=view)
 
 
 class MemoriesCog(commands.Cog):
@@ -198,19 +210,25 @@ class MemoriesCog(commands.Cog):
     async def on_ready(self):
         if self._ready:
             return
-        for _ in range(20):
-            if db.pool is not None:
-                break
-            await asyncio.sleep(0.25)
-        else:
-            logger.warning("Memories: database pool not ready; locked names not ensured")
+        try:
+            await asyncio.wait_for(db.schema_ready.wait(), timeout=30)
+        except asyncio.TimeoutError:
+            logger.warning("Memories: database not ready; locked names not ensured")
             return
         self._ready = True
         for guild in self.bot.guilds:
-            try:
-                await ensure_locked_links(guild.id, self.store)
-            except Exception:
-                logger.exception("Failed to ensure locked names for guild %s", guild.id)
+            await self._ensure_locked(guild)
+
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild):
+        if self._ready:
+            await self._ensure_locked(guild)
+
+    async def _ensure_locked(self, guild):
+        try:
+            await ensure_locked_links(guild.id, self.store)
+        except Exception:
+            logger.exception("Failed to ensure locked names for guild %s", guild.id)
 
     @commands.Cog.listener()
     async def on_message(self, message):
