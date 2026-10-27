@@ -179,3 +179,39 @@ def test_mention_names():
         NS(id=999, display_name="paruru", name="paruru", bot=True),
     ])
     assert _mention_names(message) == {"benjamin": 200, "benj_99": 200}
+
+
+def test_is_direct():
+    from cogs.memories import is_direct
+
+    assert is_direct("paruru, ben is the chairman") is True
+    assert is_direct("  Paruru, hi") is True
+    assert is_direct("paruru is cool") is False
+    assert is_direct("ben is the chairman") is False
+
+
+def test_direct_statement_processed_on_its_own_call(monkeypatch):
+    calls = []
+
+    async def spy_extract(prompt):
+        calls.append(prompt)
+        return []
+
+    monkeypatch.setattr(memories_mod, "extract_ops", spy_extract)
+    cog = MemoriesCog(bot=NS(), store=FakeStore())
+    message = NS(
+        id=1, content="paruru, ben is the global chairman of cover corp",
+        clean_content="paruru, ben is the global chairman of cover corp",
+        guild=NS(id=1), author=NS(id=100, bot=False, display_name="anto"),
+        channel=NS(id=10), mentions=[], reference=None,
+        created_at=datetime.now(timezone.utc),
+    )
+    guild = NS(id=1, members=[], get_channel=lambda _id: None)
+
+    async def scenario():
+        await cog.on_message(message)
+        await cog.process_guild(guild)
+
+    asyncio.run(scenario())
+    assert len(calls) == 1
+    assert not cog.queue.is_pending(1)

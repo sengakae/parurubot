@@ -23,6 +23,8 @@ class QueuedMessage:
     reactions: dict[str, int] = field(default_factory=dict)
     # casefolded display name / username of each mentioned user -> their ID
     mention_names: dict[str, int] = field(default_factory=dict)
+    # Said straight to paruru ("paruru, ..."): processed without waiting for replies.
+    direct: bool = False
 
 
 @dataclass
@@ -90,23 +92,31 @@ class PendingQueue:
     def _unprocessed(self, channel: _Channel) -> list[QueuedMessage]:
         return [m for m in channel.messages if m.id > channel.processed_up_to]
 
+    def _batch(self, channel: _Channel) -> list[QueuedMessage]:
+        """Unprocessed minus the newest HOLDBACK, extended through the last direct message."""
+        unprocessed = self._unprocessed(channel)
+        end = max(0, len(unprocessed) - self.HOLDBACK)
+        for i in range(len(unprocessed) - 1, end - 1, -1):
+            if unprocessed[i].direct:
+                end = i + 1
+                break
+        return unprocessed[:end]
+
     def channels_with_pending(self, guild_id: int) -> list[int]:
         return [
             channel_id
             for channel_id, channel in self._channels.items()
-            if channel.guild_id == guild_id
-            and len(self._unprocessed(channel)) > self.HOLDBACK
+            if channel.guild_id == guild_id and self._batch(channel)
         ]
 
     def take_batch(
         self, channel_id: int
     ) -> tuple[list[QueuedMessage], list[QueuedMessage]]:
-        """(context, batch): batch is unprocessed minus the newest HOLDBACK; not marked."""
+        """(context, batch): see _batch; nothing is marked processed here."""
         channel = self._channels.get(channel_id)
         if channel is None:
             return [], []
-        unprocessed = self._unprocessed(channel)
-        batch = unprocessed[: max(0, len(unprocessed) - self.HOLDBACK)]
+        batch = self._batch(channel)
         processed = [m for m in channel.messages if m.id <= channel.processed_up_to]
         return processed[-self.CONTEXT :], batch
 

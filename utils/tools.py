@@ -315,15 +315,22 @@ async def recall_person(ctx, name=None):
     )
     if not memories:
         return {"result": "nothing remembered"}
-    return {
-        "memories": [
-            {
-                "content": f"goes by {m['content']}" if m["kind"] == "name" else m["content"],
-                "joke": m["joke"],
-            }
-            for m in memories
-        ]
-    }
+
+    def text(m):
+        return f"goes by {m['content']}" if m["kind"] == "name" else m["content"]
+
+    # Jokes go in their own list with an explicit note; a per-item flag alone
+    # wasn't enough to stop the model stating them as fact.
+    result = {"facts": [text(m) for m in memories if not m["joke"]]}
+    jokes = [text(m) for m in memories if m["joke"]]
+    if jokes:
+        result["running_jokes"] = jokes
+        result["note"] = (
+            "running_jokes are bits people in the server made up. Play along and make it "
+            "obvious it's a joke (e.g. 'apparently...', 'according to the group chat...'); "
+            "never present them as true."
+        )
+    return result
 
 
 async def show_my_memories(ctx):

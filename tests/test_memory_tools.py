@@ -46,10 +46,17 @@ def test_recall_person_me(monkeypatch):
     asyncio.run(store.add_memory(5, ANTO, None, "fact", "chairman of kpmg", True, BEN, None))
     monkeypatch.setattr(tools, "memory_store", store)
     result = asyncio.run(tools.recall_person(ctx(ANTO), name="me"))
-    assert result == {"memories": [
-        {"content": "likes tea", "joke": False},
-        {"content": "chairman of kpmg", "joke": True},
-    ]}
+    assert result["facts"] == ["likes tea"]
+    assert result["running_jokes"] == ["chairman of kpmg"]
+    assert "never" in result["note"] and "true" in result["note"]
+
+
+def test_recall_person_facts_only_has_no_joke_note(monkeypatch):
+    store = FakeStore()
+    asyncio.run(store.add_memory(5, ANTO, None, "fact", "likes tea", False, ANTO, None))
+    monkeypatch.setattr(tools, "memory_store", store)
+    result = asyncio.run(tools.recall_person(ctx(ANTO), name="me"))
+    assert result == {"facts": ["likes tea"]}
 
 
 def test_recall_person_nothing(monkeypatch):

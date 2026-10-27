@@ -99,7 +99,8 @@ async def _apply_add(op, msg, ctx, store) -> bool:
     user_id = LOCKED_NAMES.get(name) or links.get(name)
     if user_id is None:
         addressed = op.addressed and name in msg.content.casefold()
-        if name not in ctx.member_names and not addressed:
+        # Told straight to paruru: a new name starts its own profile.
+        if name not in ctx.member_names and not addressed and not msg.direct:
             return False
     await store.add_memory(
         ctx.guild_id, user_id, name, "fact", content, op.joke, msg.author_id, msg.id
