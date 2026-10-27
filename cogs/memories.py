@@ -24,6 +24,10 @@ MEMORY_INPUT_LIMIT = 200
 _WORD_RE = re.compile(r"[\w'-]+")
 
 
+def is_direct(text: str) -> bool:
+    return text.lstrip().casefold().startswith("paruru,")
+
+
 def should_queue(message) -> bool:
     return (
         message.guild is not None
@@ -257,6 +261,7 @@ class MemoriesCog(commands.Cog):
                 reply_to_author_id=_reply_author_id(message),
                 created_at=message.created_at,
                 mention_names=_mention_names(message),
+                direct=is_direct(message.content),
             )
         )
 

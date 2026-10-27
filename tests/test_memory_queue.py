@@ -107,3 +107,24 @@ def test_channels_with_pending():
     fill(q, range(14, 24), channel_id=30, guild_id=2)
     assert q.channels_with_pending(1) == [10]
     assert q.channels_with_pending(2) == [30]
+
+
+def test_direct_message_skips_holdback():
+    q = PendingQueue()
+    m = msg(1, content="paruru, ben is the chairman")
+    m.direct = True
+    q.add(m)
+    _, batch = q.take_batch(10)
+    assert ids(batch) == [1]
+    assert q.channels_with_pending(1) == [10]
+
+
+def test_direct_message_pulls_earlier_messages_in():
+    q = PendingQueue()
+    fill(q, [1])
+    direct = msg(2, content="paruru, i'm moving to osaka")
+    direct.direct = True
+    q.add(direct)
+    fill(q, [3, 4])
+    _, batch = q.take_batch(10)
+    assert ids(batch) == [1, 2]  # 3 and 4 still wait for replies

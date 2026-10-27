@@ -309,3 +309,14 @@ def test_mention_locked_name_not_taken():
     assert run(store.get_links(G)) == {}
     [row] = store.facts()
     assert row["user_id"] == CHEUNG
+
+
+def test_direct_name_add_creates_profile():
+    store = FakeStore()
+    m = qmsg(1, content="paruru, ben is the global chairman of cover corp")
+    m.direct = True
+    reacts = run(apply_ops([Op("add", 1, subject="name", name="ben", content="global chairman of cover corp", joke=True)], context(m, members={}), store))
+    [row] = store.facts()
+    assert row["name"] == "ben" and row["user_id"] is None
+    assert reacts == [1]
+    assert [m["content"] for m in run(recall(G, "ben", ANTO, store))] == ["global chairman of cover corp"]

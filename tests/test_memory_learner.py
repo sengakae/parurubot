@@ -74,3 +74,11 @@ def test_parse_ops_skips_invalid():
     assert [(o.op, o.message_id) for o in ops] == [("add", 5)]
     assert parse_ops("not json") == []
     assert parse_ops(json.dumps([1, 2])) == []
+
+
+def test_build_prompt_marks_direct_messages():
+    m = qmsg(1, "paruru, ben is the chairman")
+    m.direct = True
+    prompt = build_learner_prompt([], [m, qmsg(2, "lol")], [], {}, [])
+    assert "[1] (to paruru) anto (100): paruru, ben is the chairman" in prompt
+    assert "[2] anto (100): lol" in prompt

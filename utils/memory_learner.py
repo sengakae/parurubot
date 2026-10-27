@@ -26,6 +26,7 @@ What to remember
 Who it is about
 - About the speaker ("i'm moving to osaka"): subject "self".
 - About someone else: subject "name" with the name as written ("ben"). For an @mentioned person, use the name exactly as it appears after the @.
+- Messages marked (to paruru) were said to you directly. Remember facts in them about any named person, even a name that isn't a known member; it starts a new profile.
 - Only people in this server: linked names, server member names, or a name someone speaks to directly (then set addressed true). Drop celebrities, characters, and other outsiders.
 - If a name could be a famous person, weigh in order: whether the name belongs to someone here; how it is written (a lowercase first name is a friend, a full name or surname is usually famous); whether that person is in the conversation; whether the claim is actually true of a well-known person. If still unsure, treat it as the server member.
 
@@ -66,7 +67,8 @@ OPS_SCHEMA = {
 
 
 def _format_message(msg: QueuedMessage) -> str:
-    line = f"[{msg.id}] {msg.author_label} ({msg.author_id}): {msg.content}"
+    to_paruru = "(to paruru) " if msg.direct else ""
+    line = f"[{msg.id}] {to_paruru}{msg.author_label} ({msg.author_id}): {msg.content}"
     extras = []
     if msg.mention_ids:
         extras.append("mentions: " + ", ".join(str(i) for i in msg.mention_ids))
