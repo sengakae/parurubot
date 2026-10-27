@@ -8,10 +8,10 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config import PARTNER_LABEL, PARTNER_USER_ID
 from db import get_quote_by_key, init_db
 from history import add_message_to_history, get_channel_history
 from utils.ai import chat_with_ai, convert_pil_to_part
+from utils.identity import speaker_label
 from utils.links import collect_images_from_message, extract_youtube_urls
 from utils.messages import split_message
 from utils.notes import load_personal_notes, search_personal_notes
@@ -34,18 +34,10 @@ AI_TIMEOUT = 300
 
 intents = discord.Intents.default()
 intents.message_content = True
+# Member names let the memory learner tell server members from outsiders.
+intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-
-def speaker_label(user) -> str:
-    """Name the AI sees for a user. The partner is identified by ID, never by name."""
-    if user.id == PARTNER_USER_ID:
-        return PARTNER_LABEL
-    name = user.display_name
-    if "sengakae" in name.casefold():
-        return f"{name} (not your boyfriend)"
-    return name
 
 
 @bot.event
@@ -87,17 +79,20 @@ async def on_message(message):
             keyword = content[0][1:]
 
             if bot.get_command(keyword):
+                bot.dispatch("paruru_called", message)
                 await bot.process_commands(message)
                 return
 
             quote = await get_quote_by_key(keyword)
             if quote:
+                bot.dispatch("paruru_called", message)
                 await message.channel.send(quote)
                 return
 
             return
 
         if content[0].lower() == ("paruru,"):
+            bot.dispatch("paruru_called", message)
             await handle_ai_chat(message)
             return
 
