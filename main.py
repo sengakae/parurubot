@@ -8,9 +8,10 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from config import PARTNER_LABEL, PARTNER_USER_ID
 from db import get_quote_by_key, init_db
 from history import add_message_to_history, get_channel_history
-from utils.ai import chat_with_ai, convert_pil_to_part, convert_video_to_part
+from utils.ai import chat_with_ai, convert_pil_to_part
 from utils.links import collect_images_from_message, extract_youtube_urls
 from utils.messages import split_message
 from utils.notes import load_personal_notes, search_personal_notes
@@ -34,6 +35,16 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+def speaker_label(user) -> str:
+    """Name the AI sees for a user. The partner is identified by ID, never by name."""
+    if user.id == PARTNER_USER_ID:
+        return PARTNER_LABEL
+    name = user.display_name
+    if "sengakae" in name.casefold():
+        return f"{name} (not your boyfriend)"
+    return name
 
 
 @bot.event
@@ -104,12 +115,43 @@ async def on_message(message):
     if not message.content.startswith("!"):
         add_message_to_history(
             message.channel.id,
-            message.author.display_name,
+            speaker_label(message.author),
             message_content,
             is_bot=False,
             images=message_images,
             videos=youtube_urls,
         )
+
+
+def build_history_context(history_messages, include_images=True):
+    """Build the history turn sent to the AI.
+
+    Only the most recent image message has its images attached. YouTube videos are
+    referenced by the URL in the message text only: re-sending them made every query
+    slow, and one unavailable video broke every query until !clear.
+    """
+    if not history_messages:
+        return ""
+
+    last_image_index = None
+    if include_images:
+        last_image_index = next(
+            (
+                i
+                for i in range(len(history_messages) - 1, -1, -1)
+                if history_messages[i]["images"]
+            ),
+            None,
+        )
+
+    conversation_parts = [{"text": "Here's the recent conversation context:"}]
+    for i, msg in enumerate(history_messages):
+        conversation_parts.append({"text": f"{msg['author']}: {msg['content']}"})
+        if i == last_image_index:
+            for img in msg["images"]:
+                conversation_parts.append(convert_pil_to_part(img))
+
+    return {"role": "user", "parts": conversation_parts}
 
 
 async def handle_ai_chat(message):
@@ -170,40 +212,10 @@ async def handle_ai_chat(message):
             current_videos = current_videos[:MAX_VIDEOS]
 
         history_messages = get_channel_history(channel_id, include_media=True)
-        history_context = ""
-
-        if history_messages:
-            conversation_parts = [{"text": "Here's the recent conversation context:"}]
-            skip_history_media = bool(current_images or current_videos)
-            last_media_index = None
-            if not skip_history_media:
-                last_media_index = next(
-                    (
-                        i
-                        for i in range(len(history_messages) - 1, -1, -1)
-                        if history_messages[i]["has_media"]
-                    ),
-                    None,
-                )
-
-            for i, msg in enumerate(history_messages):
-                if msg["has_media"]:
-                    if skip_history_media or i != last_media_index:
-                        continue
-
-                    conversation_parts.append(
-                        {"text": f"{msg['author']} shared media:"}
-                    )
-                    for img in msg["images"]:
-                        conversation_parts.append(convert_pil_to_part(img))
-                    for vid in msg["videos"]:
-                        conversation_parts.append(convert_video_to_part(vid))
-                else:
-                    conversation_parts.append(
-                        {"text": f"{msg['author']}: {msg['content']}"}
-                    )
-
-            history_context = {"role": "user", "parts": conversation_parts}
+        include_history_images = not (current_images or current_videos)
+        history_has_images = include_history_images and any(
+            msg["images"] for msg in history_messages
+        )
 
         relevant_notes = search_personal_notes(cleaned_content, n_results=2)
         notes_context = ""
@@ -213,19 +225,36 @@ async def handle_ai_chat(message):
             )
             logger.info("Found relevant notes for this query")
 
+        async def ask(include_images):
+            history_context = build_history_context(history_messages, include_images)
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    chat_with_ai,
+                    f"[message from {speaker_label(message.author)}]\n"
+                    f"{cleaned_content}",
+                    history_context,
+                    notes_context,
+                    current_images,
+                    current_videos,
+                ),
+                timeout=AI_TIMEOUT,
+            )
+
         async with message.channel.typing():
             try:
-                response_text = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        chat_with_ai,
-                        cleaned_content,
-                        history_context,
-                        notes_context,
-                        current_images,
-                        current_videos,
-                    ),
-                    timeout=AI_TIMEOUT,
-                )
+                try:
+                    response_text = await ask(include_history_images)
+                except asyncio.TimeoutError:
+                    raise
+                except Exception as e:
+                    # A bad image in history would otherwise break every query until !clear.
+                    if not history_has_images:
+                        raise
+                    logger.warning(
+                        f"AI request with history images failed ({e}); "
+                        "retrying with text-only history"
+                    )
+                    response_text = await ask(include_images=False)
             except asyncio.TimeoutError:
                 logger.warning("AI response timed out")
                 await message.channel.send(

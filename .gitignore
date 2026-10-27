@@ -102,3 +102,6 @@ Desktop.ini
 *.mov
 *.wav
 *.flac
+
+CLAUDE.local.md
+.mcp.json

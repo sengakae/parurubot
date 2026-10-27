@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import secrets
 
 import asyncpg
 
@@ -34,6 +35,19 @@ async def init_db():
             )
         """)
         await conn.execute("""
+            ALTER TABLE reminders
+                ADD COLUMN IF NOT EXISTS recur_every TEXT,
+                ADD COLUMN IF NOT EXISTS recur_anchor TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS code TEXT
+        """)
+        await conn.execute("""
+            UPDATE reminders SET code = substr(md5(random()::text || id::text), 1, 6)
+            WHERE code IS NULL
+        """)
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS reminders_code_idx ON reminders (code)"
+        )
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS tasklists (
                 message_id BIGINT PRIMARY KEY,
                 channel_id BIGINT NOT NULL,
@@ -55,6 +69,10 @@ async def init_db():
                 guest_counts JSONB NOT NULL DEFAULT '{}',
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
+        """)
+        await conn.execute("""
+            ALTER TABLE signup_sheets
+                ADD COLUMN IF NOT EXISTS closed BOOLEAN NOT NULL DEFAULT FALSE
         """)
 
 
@@ -93,18 +111,53 @@ async def get_quote_by_key(key):
         return row["value"] if row else None
 
 
-async def add_reminder(user_id, channel_id, message, remind_at):
+async def add_reminder(
+    user_id, channel_id, message, remind_at, recur_every=None, recur_anchor=None
+):
+    """Insert a reminder. Returns (id, code); code is the random public ID shown to users."""
     async with pool.acquire() as conn:
-        return await conn.fetchval(
-            """
-            INSERT INTO reminders (user_id, channel_id, message, remind_at)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id
-            """,
-            user_id,
-            channel_id,
-            message,
-            remind_at,
+        for _ in range(5):
+            code = secrets.token_hex(3)
+            try:
+                reminder_id = await conn.fetchval(
+                    """
+                    INSERT INTO reminders (
+                        user_id, channel_id, message, remind_at,
+                        recur_every, recur_anchor, code
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    RETURNING id
+                    """,
+                    user_id,
+                    channel_id,
+                    message,
+                    remind_at,
+                    recur_every,
+                    recur_anchor,
+                    code,
+                )
+                return reminder_id, code
+            except asyncpg.UniqueViolationError:
+                continue
+        raise RuntimeError("Could not generate a unique reminder code")
+
+
+async def update_reminder_time(reminder_id, remind_at):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE reminders SET remind_at = $2 WHERE id = $1", reminder_id, remind_at
+        )
+
+
+async def get_reminder_by_code(code):
+    async with pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM reminders WHERE code = $1", code)
+
+
+async def get_user_reminders(user_id):
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT * FROM reminders WHERE user_id = $1 ORDER BY remind_at", user_id
         )
 
 
@@ -207,15 +260,16 @@ async def save_signup_sheet(
     cap,
     signups,
     guest_counts,
+    closed=False,
 ):
     async with pool.acquire() as conn:
         await conn.execute(
             """
             INSERT INTO signup_sheets (
                 message_id, channel_id, creator_id, creator_name,
-                title, cap, signups, guest_counts
+                title, cap, signups, guest_counts, closed
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
             ON CONFLICT (message_id) DO UPDATE SET
                 channel_id = EXCLUDED.channel_id,
                 creator_id = EXCLUDED.creator_id,
@@ -223,7 +277,8 @@ async def save_signup_sheet(
                 title = EXCLUDED.title,
                 cap = EXCLUDED.cap,
                 signups = EXCLUDED.signups,
-                guest_counts = EXCLUDED.guest_counts
+                guest_counts = EXCLUDED.guest_counts,
+                closed = EXCLUDED.closed
             """,
             message_id,
             channel_id,
@@ -233,6 +288,7 @@ async def save_signup_sheet(
             cap,
             json.dumps({str(k): v for k, v in signups.items()}),
             json.dumps({str(k): v for k, v in guest_counts.items()}),
+            closed,
         )
 
 
@@ -254,6 +310,7 @@ async def get_all_signup_sheets():
                 "cap": row["cap"],
                 "signups": _parse_int_keyed_json(row["signups"]),
                 "guest_counts": _parse_int_keyed_json(row["guest_counts"]),
+                "closed": row["closed"],
             }
             for row in rows
         ]

@@ -21,9 +21,13 @@ grounding_config = types.GenerateContentConfig(
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.5-flash"
 MAX_API_RETRIES = 3
+# Gemini sometimes finishes normally but returns no text, mostly when a web search
+# finds nothing (e.g. obscure handles). Retry it, then fall back to no search.
+MAX_EMPTY_RETRIES = 2
+EMPTY_RESPONSE_TEXT = "No response generated."
 
 
-def extract_response_text(response) -> str:
+def extract_response_text(response) -> str | None:
     try:
         text = response.text
         if text:
@@ -43,7 +47,13 @@ def extract_response_text(response) -> str:
         if text_parts:
             return "".join(text_parts)
 
-    return "No response generated."
+    candidates = getattr(response, "candidates", None) or []
+    logger.warning(
+        "Gemini returned no text: finish_reasons=%s prompt_feedback=%s",
+        [getattr(c, "finish_reason", None) for c in candidates],
+        getattr(response, "prompt_feedback", None),
+    )
+    return None
 
 
 def _is_retryable_error(error: Exception) -> bool:
@@ -63,7 +73,27 @@ def _is_retryable_error(error: Exception) -> bool:
     return any(marker in message for marker in retry_markers)
 
 
-def generate_content_with_retry(**kwargs):
+def generate_content_with_retry(**kwargs) -> str:
+    for attempt in range(MAX_EMPTY_RETRIES):
+        text = _generate_with_error_retry(**kwargs)
+        if text:
+            return text
+        logger.warning(
+            f"Empty Gemini response (attempt {attempt + 1}/{MAX_EMPTY_RETRIES})"
+        )
+
+    config = kwargs.get("config")
+    if config is not None and config.tools:
+        logger.warning("Retrying Gemini request without web search")
+        no_search = config.model_copy(update={"tools": None})
+        text = _generate_with_error_retry(**{**kwargs, "config": no_search})
+        if text:
+            return text
+
+    return EMPTY_RESPONSE_TEXT
+
+
+def _generate_with_error_retry(**kwargs) -> str | None:
     last_error = None
     for attempt in range(MAX_API_RETRIES):
         try:
@@ -123,7 +153,8 @@ def summarize_channel(messages):
 
 def convert_pil_to_part(pil_image):
     """Convert PIL Image to a Google GenAI Part object."""
-    if pil_image.mode in ("RGBA", "P"):
+    # JPEG can't store modes like LA or I;16, so normalize everything to RGB.
+    if pil_image.mode != "RGB":
         pil_image = pil_image.convert("RGB")
 
     img_byte_arr = io.BytesIO()

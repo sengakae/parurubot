@@ -1,4 +1,5 @@
 import asyncio
+import calendar
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -129,6 +130,51 @@ def parse_remind_time(value: str) -> datetime | None:
     return None
 
 
+_RECUR_RE = re.compile(r"^(?P<n>\d+)(?P<unit>[dwmy])$", re.IGNORECASE)
+_RECUR_UNIT_NAMES = {"d": "day", "w": "week", "m": "month", "y": "year"}
+
+
+def parse_recurrence(value: str) -> str | None:
+    """Parse a recurrence like 2w (every 2 weeks). Returns normalized form or None."""
+    match = _RECUR_RE.fullmatch(value.strip())
+    if not match or int(match["n"]) <= 0:
+        return None
+    return f"{int(match['n'])}{match['unit'].lower()}"
+
+
+def describe_recurrence(every: str) -> str:
+    n, unit = int(every[:-1]), _RECUR_UNIT_NAMES[every[-1]]
+    return f"every {unit}" if n == 1 else f"every {n} {unit}s"
+
+
+def _add_months(dt: datetime, months: int) -> datetime:
+    total = dt.month - 1 + months
+    year, month = dt.year + total // 12, total % 12 + 1
+    day = min(dt.day, calendar.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
+def next_occurrence(anchor: datetime, every: str, after: datetime) -> datetime:
+    """First occurrence of anchor + k*interval (k >= 1) strictly after `after`.
+
+    Computed from the anchor each time so month-end days don't drift (Jan 31 -> Feb 28 -> Mar 31).
+    """
+    n, unit = int(every[:-1]), every[-1]
+    k = 1
+    while True:
+        if unit == "d":
+            candidate = anchor + timedelta(days=n * k)
+        elif unit == "w":
+            candidate = anchor + timedelta(weeks=n * k)
+        elif unit == "m":
+            candidate = _add_months(anchor, n * k)
+        else:
+            candidate = _add_months(anchor, 12 * n * k)
+        if candidate > after:
+            return candidate
+        k += 1
+
+
 def discord_timestamp(dt: datetime, style: str = "R") -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
@@ -176,32 +222,58 @@ class RemindMeCog(commands.Cog):
                 row["user_id"],
                 row["message"],
                 remind_at,
+                row["recur_every"],
+                row["recur_anchor"],
             )
         if rows:
             logger.info("Restored %d reminder(s) from database", len(rows))
 
-    def _schedule(self, reminder_id, channel_id, user_id, message, remind_at: datetime):
+    def _schedule(
+        self,
+        reminder_id,
+        channel_id,
+        user_id,
+        message,
+        remind_at: datetime,
+        recur_every: str | None = None,
+        recur_anchor: datetime | None = None,
+    ):
         if reminder_id in self._tasks:
             return
 
         async def _fire():
+            delay = (remind_at - datetime.now(timezone.utc)).total_seconds()
+            if delay > 0:
+                await asyncio.sleep(delay)
+
             try:
-                delay = (remind_at - datetime.now(timezone.utc)).total_seconds()
-                if delay > 0:
-                    await asyncio.sleep(delay)
                 await self._deliver(channel_id, user_id, message)
-            except asyncio.CancelledError:
-                raise
             except Exception:
                 logger.exception("Failed to deliver reminder %s", reminder_id)
-            finally:
-                try:
-                    await db.delete_reminder(reminder_id)
-                except Exception:
-                    logger.exception(
-                        "Failed to delete reminder %s from database", reminder_id
+
+            self._tasks.pop(reminder_id, None)
+            next_at = None
+            try:
+                if recur_every:
+                    next_at = next_occurrence(
+                        recur_anchor, recur_every, datetime.now(timezone.utc)
                     )
-                self._tasks.pop(reminder_id, None)
+                    await db.update_reminder_time(reminder_id, next_at)
+                else:
+                    await db.delete_reminder(reminder_id)
+            except Exception:
+                logger.exception("Failed to update reminder %s in database", reminder_id)
+
+            if next_at is not None:
+                self._schedule(
+                    reminder_id,
+                    channel_id,
+                    user_id,
+                    message,
+                    next_at,
+                    recur_every,
+                    recur_anchor,
+                )
 
         self._tasks[reminder_id] = asyncio.create_task(_fire())
 
@@ -241,41 +313,67 @@ class RemindMeCog(commands.Cog):
 
     @commands.command(
         name="remindme",
-        help="Set a reminder: !remindme <message> <time> (e.g. 2h15m or 2026-05-31T16:00PDT)",
+        help=(
+            "Set a reminder: !remindme <message> <time> [every <n>d|w|m|y] "
+            "(e.g. 2h15m or 2026-05-31T16:00PDT; add `every 2w` to repeat)"
+        ),
     )
     async def remindme(self, ctx, *, args: str):
+        usage = (
+            "Usage: `!remindme <message> <time> [every <interval>]`\n"
+            "Time can be a countdown (`2h15m`, `30m`, `1d2h`) or a datetime with timezone "
+            "(`2026-05-31T16:00PDT`).\n"
+            "Repeat with `every <n>d`, `<n>w`, `<n>m` (months), or `<n>y` — e.g. "
+            "`!remindme pay rent 2026-11-01T09:00PST every 1m`. "
+            "If the time is omitted, the first reminder is one interval from now."
+        )
+
+        recur_every = None
+        tokens = args.rsplit(maxsplit=2)
+        if len(tokens) == 3 and tokens[1].lower() == "every":
+            recur_every = parse_recurrence(tokens[2])
+            if recur_every is None:
+                await ctx.send(
+                    "Could not parse that interval. Use `every <n>d`, `<n>w`, `<n>m`, or `<n>y` "
+                    "(e.g. `every 2w`)."
+                )
+                return
+            args = tokens[0]
+
+        now = datetime.now(timezone.utc)
         parts = args.rsplit(maxsplit=1)
-        if len(parts) < 2:
-            await ctx.send(
-                "Usage: `!remindme <message> <time>`\n"
-                "Time can be a countdown (`2h15m`, `30m`, `1d2h`) or a datetime with timezone "
-                "(`2026-05-31T16:00PDT`)."
-            )
+        remind_at = parse_remind_time(parts[-1]) if len(parts) == 2 else None
+        if remind_at is not None:
+            message = parts[0].strip()
+        elif recur_every is not None:
+            message = args.strip()
+            remind_at = next_occurrence(now, recur_every, now)
+        elif len(parts) < 2:
+            await ctx.send(usage)
             return
-
-        message, time_str = parts[0].strip(), parts[1].strip()
-        if not message:
-            await ctx.send("Reminder message cannot be empty.")
-            return
-
-        remind_at = parse_remind_time(time_str)
-        if remind_at is None:
+        else:
             await ctx.send(
                 "Could not parse that time. Use a countdown like `2h15m` or a datetime like "
                 "`2026-05-31T16:00PDT`."
             )
             return
 
-        now = datetime.now(timezone.utc)
+        if not message:
+            await ctx.send("Reminder message cannot be empty.")
+            return
+
         if remind_at <= now:
             await ctx.send("That time is in the past. Pick a future time.")
             return
 
-        reminder_id = await db.add_reminder(
+        recur_anchor = remind_at if recur_every else None
+        reminder_id, code = await db.add_reminder(
             ctx.author.id,
             ctx.channel.id,
             message,
             remind_at,
+            recur_every,
+            recur_anchor,
         )
         self._schedule(
             reminder_id,
@@ -283,10 +381,65 @@ class RemindMeCog(commands.Cog):
             ctx.author.id,
             message,
             remind_at,
+            recur_every,
+            recur_anchor,
         )
 
         when = discord_timestamp(remind_at)
-        await ctx.send(f"Got it — I'll remind you {when}: **{message}**")
+        repeat = f" and then {describe_recurrence(recur_every)}" if recur_every else ""
+        await ctx.send(
+            f"Got it — I'll remind you {when}{repeat}: **{message}**\n"
+            f"ID `{code}` — cancel with `!cancelreminder {code}`."
+        )
+
+    @commands.command(
+        name="cancelreminder",
+        help="Cancel one of your reminders: !cancelreminder <id> (see !myreminders)",
+    )
+    async def cancelreminder(self, ctx, code: str):
+        code = code.strip("`").lower()
+        row = await db.get_reminder_by_code(code)
+        if row is None or row["user_id"] != ctx.author.id:
+            await ctx.send(f"You have no reminder with ID `{code}`. See `!myreminders`.")
+            return
+
+        task = self._tasks.pop(row["id"], None)
+        if task is not None:
+            task.cancel()
+        await db.delete_reminder(row["id"])
+        await ctx.send(f"Cancelled reminder `{code}`: **{row['message']}**")
+
+    @commands.command(
+        name="myreminders",
+        help="List all reminders you've created, with their IDs",
+    )
+    async def myreminders(self, ctx):
+        rows = await db.get_user_reminders(ctx.author.id)
+        if not rows:
+            await ctx.send("You have no reminders.")
+            return
+
+        lines = ["**Your reminders**"]
+        length = len(lines[0])
+        for i, row in enumerate(rows, start=1):
+            when = discord_timestamp(row["remind_at"])
+            repeat = (
+                f", {describe_recurrence(row['recur_every'])}"
+                if row["recur_every"]
+                else ""
+            )
+            line = (
+                f"{i}. {when} — **{row['message']}** "
+                f"(<#{row['channel_id']}>{repeat}, ID `{row['code']}`)"
+            )
+            # Stay under Discord's 2000-character message limit.
+            if length + len(line) + 1 > 1900:
+                lines.append(f"…and {len(rows) - i + 1} more")
+                break
+            lines.append(line)
+            length += len(line) + 1
+
+        await ctx.send("\n".join(lines))
 
     @commands.command(
         name="timers",
@@ -309,8 +462,13 @@ class RemindMeCog(commands.Cog):
             when = discord_timestamp(remind_at)
             user = await self._user_label(row["user_id"], ctx.guild)
             channel = f"<#{row['channel_id']}>"
+            repeat = (
+                f", {describe_recurrence(row['recur_every'])}"
+                if row["recur_every"]
+                else ""
+            )
             lines.append(
-                f"{i}. {when} — **{row['message']}** ({user}, {channel})"
+                f"{i}. {when} — **{row['message']}** ({user}, {channel}{repeat}, ID `{row['code']}`)"
             )
 
         await ctx.send("\n".join(lines))

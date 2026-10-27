@@ -148,6 +148,7 @@ discord-bot/
   - **Guests (+1s)** - Dropdown to select 0–9 additional guests before signing up
   - **Sign up** - Adds your display name to the list (updates your +1 count if you sign up again)
   - **Leave** - Removes yourself from the list
+  - **End signup** - Closes the sheet (only the creator who ran `!signup`): the list stays visible but signing up, leaving, and changing guests are disabled
   - **Delete sheet** - Removes the signup sheet (only the creator who ran `!signup`)
   - Sheets are saved to the database and keep working after the bot restarts
 
@@ -159,8 +160,11 @@ discord-bot/
     - Full ISO offsets (`Z` or `+00:00`)
     - Regional abbreviations mapped dynamically to geographical `ZoneInfo` standard locations (e.g., `PDT`/`PST` maps to `America/Los_Angeles`, `CEST`/`CET` to `Europe/Paris`, `JST` to `Asia/Tokyo`, etc.)
     - Fallback fixed hour offsets (`_FIXED_OFFSET_HOURS`) if specific timezone database entries are unavailable
+  - **Recurring**: append `every <n>d|w|m|y` (days, weeks, months, years), e.g. `!remindme pay rent 2026-11-01T09:00PST every 1m`. The time is optional; without it the first reminder fires one interval from now (`!remindme water plants every 2w`). Monthly/yearly reminders on the 29th–31st fall back to the last day of shorter months without drifting.
   - Reminders are securely saved to the database and will be delivered even if the bot restarts.
-- **`!timers`** - List the next 5 upcoming reminders across all channels, complete with an interactive Discord relative countdown timestamp, the original message, the target user, and the channel location.
+- **`!timers`** - List the next 5 upcoming reminders across all channels, complete with an interactive Discord relative countdown timestamp, the original message, the target user, the channel location, recurrence, and reminder ID.
+- **`!myreminders`** - List every reminder you've created, with its ID and recurrence
+- **`!cancelreminder <id>`** - Cancel one of your own reminders by its ID (use this to stop a recurring reminder). IDs are random 6-character codes (e.g. `a1f41e`) shown when you create a reminder and in `!myreminders`
 
 ### Bot Deployment
 - **`!update`** - Owner-only. Pulls the latest changes from git and restarts the bot service

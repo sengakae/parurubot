@@ -89,6 +89,10 @@ def _guests_custom_id(message_id: int) -> str:
     return f"signup:guests:{message_id}"
 
 
+def _end_custom_id(message_id: int) -> str:
+    return f"signup:end:{message_id}"
+
+
 async def _save_signup(view: "SignupView") -> None:
     await db.save_signup_sheet(
         view.message_id,
@@ -99,6 +103,7 @@ async def _save_signup(view: "SignupView") -> None:
         view.cap,
         view.signups,
         view.guest_counts,
+        view.closed,
     )
 
 
@@ -222,6 +227,29 @@ class DeleteSignupButton(discord.ui.Button):
         view.stop()
 
 
+class EndSignupButton(discord.ui.Button):
+    def __init__(self, message_id: int):
+        super().__init__(
+            label="End signup",
+            style=discord.ButtonStyle.secondary,
+            row=0,
+            custom_id=_end_custom_id(message_id),
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: SignupView = self.view
+        if interaction.user.id != view.creator_id:
+            await interaction.response.send_message(
+                "Only the person who created this signup sheet can end it.",
+                ephemeral=True,
+            )
+            return
+
+        view.close()
+        await interaction.response.edit_message(embed=view.build_embed(), view=view)
+        await _save_signup(view)
+
+
 class LeaveSignupButton(discord.ui.Button):
     def __init__(self, message_id: int):
         super().__init__(
@@ -260,6 +288,7 @@ class SignupView(discord.ui.View):
         cap: int | None = None,
         signups: dict[int, dict] | None = None,
         guest_counts: dict[int, int] | None = None,
+        closed: bool = False,
     ):
         super().__init__(timeout=None)
         self.title = title
@@ -270,10 +299,21 @@ class SignupView(discord.ui.View):
         self.cap = cap
         self.signups = dict(signups) if signups is not None else {}
         self.guest_counts = dict(guest_counts) if guest_counts is not None else {}
+        self.closed = False
         self.add_item(SignUpButton(message_id))
         self.add_item(LeaveSignupButton(message_id))
+        self.add_item(EndSignupButton(message_id))
         self.add_item(DeleteSignupButton(message_id))
         self.add_item(PlusOnesSelect(message_id))
+        if closed:
+            self.close()
+
+    def close(self) -> None:
+        """Freeze the list: disable everything except the creator's Delete button."""
+        self.closed = True
+        for item in self.children:
+            if not isinstance(item, DeleteSignupButton):
+                item.disabled = True
 
     @classmethod
     def from_stored(cls, stored: dict) -> "SignupView":
@@ -286,33 +326,40 @@ class SignupView(discord.ui.View):
             cap=stored["cap"],
             signups=stored["signups"],
             guest_counts=stored["guest_counts"],
+            closed=stored["closed"],
         )
 
     def build_embed(self) -> discord.Embed:
         if not self.signups:
-            return build_empty_signup_embed(
+            embed = build_empty_signup_embed(
                 self.title, self.creator_name, cap=self.cap
             )
-
-        entries = list(self.signups.values())
-        description = "\n".join(
-            format_signup_line(index, entry) for index, entry in enumerate(entries)
-        )
-        signup_count = len(self.signups)
-        headcount = total_headcount(self.signups)
-        embed = discord.Embed(
-            title=self.title,
-            description=description,
-            color=discord.Color.green(),
-        )
-        embed.set_footer(
-            text=_signup_footer(
-                signup_count,
-                headcount,
-                self.creator_name,
-                cap=self.cap,
+            if self.closed:
+                embed.description = "No one signed up."
+        else:
+            entries = list(self.signups.values())
+            description = "\n".join(
+                format_signup_line(index, entry) for index, entry in enumerate(entries)
             )
-        )
+            signup_count = len(self.signups)
+            headcount = total_headcount(self.signups)
+            embed = discord.Embed(
+                title=self.title,
+                description=description,
+                color=discord.Color.green(),
+            )
+            embed.set_footer(
+                text=_signup_footer(
+                    signup_count,
+                    headcount,
+                    self.creator_name,
+                    cap=self.cap,
+                )
+            )
+
+        if self.closed:
+            embed.title = f"{self.title} (signups closed)"
+            embed.color = discord.Color.dark_grey()
         return embed
 
 
