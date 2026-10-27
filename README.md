@@ -158,8 +158,7 @@ discord-bot/
   - A message that produced a memory gets a 📝 reaction
   - Messages deleted before they are read are never saved; edits are read in their latest form
   - Things you say about yourself go on your profile; things said about a name are saved under that name until it is linked to someone
-  - Names link to people from conversation ("that's ben", "i'm ben") or by the admin (`paruru, @someone is ben`); a link merges that name's memories into the person
-  - `sengakae` is locked to its owner and can't be linked to anyone else
+  - Names link to people from conversation, from @mentions, or by the admin; a link merges that name's memories into the person
   - Jokes are kept and flagged so paruru brings them up playfully, never as fact
 - **`!aboutme`** - Shows what paruru remembers about you (no arguments, only your own)
   - **Remove a memory...** - Dropdown that removes a memory right away (removing a name unlinks it)

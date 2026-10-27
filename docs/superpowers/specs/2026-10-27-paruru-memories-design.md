@@ -65,6 +65,7 @@ Name links are the `kind = 'name'` rows that have a `user_id`. A unique index on
 
 ### Linking and merging
 
+- **@mentions link** (user decision): a fact about an @mentioned person is filed under that account, and the name as written is linked to it if the name is free (a name already linked elsewhere, or locked, is not moved; the fact still goes to the mentioned account).
 - A link is created when the learner sees a cue ("that's ben", "i'm ben", replying "ben" to someone), or when the admin says it in chat (`paruru, @xCooki3s is ben`).
 - Applies immediately. On link: insert the `name` memory for that user, then `UPDATE memories SET user_id = <id> WHERE guild_id = ? AND name = 'ben' AND user_id IS NULL`.
 - After a link, new memories about `ben` are filed directly under the linked ID.

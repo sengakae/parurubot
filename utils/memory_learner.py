@@ -25,7 +25,7 @@ What to remember
 
 Who it is about
 - About the speaker ("i'm moving to osaka"): subject "self".
-- About someone else: subject "name" with the name as written ("ben").
+- About someone else: subject "name" with the name as written ("ben"). For an @mentioned person, use the name exactly as it appears after the @.
 - Only people in this server: linked names, server member names, or a name someone speaks to directly (then set addressed true). Drop celebrities, characters, and other outsiders.
 - If a name could be a famous person, weigh in order: whether the name belongs to someone here; how it is written (a lowercase first name is a friend, a full name or surname is usually famous); whether that person is in the conversation; whether the claim is actually true of a well-known person. If still unsure, treat it as the server member.
 

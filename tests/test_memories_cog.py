@@ -169,3 +169,13 @@ def test_reply_to_bot_not_a_link_target():
     assert _reply_author_id(reply_to_bot) is None
     assert _reply_author_id(reply_to_user) == 200
     assert _reply_author_id(NS(reference=None)) is None
+
+
+def test_mention_names():
+    from cogs.memories import _mention_names
+
+    message = NS(mentions=[
+        NS(id=200, display_name="Benjamin", name="benj_99", bot=False),
+        NS(id=999, display_name="paruru", name="paruru", bot=True),
+    ])
+    assert _mention_names(message) == {"benjamin": 200, "benj_99": 200}

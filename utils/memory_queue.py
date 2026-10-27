@@ -21,6 +21,8 @@ class QueuedMessage:
     reply_to_author_id: int | None
     created_at: datetime
     reactions: dict[str, int] = field(default_factory=dict)
+    # casefolded display name / username of each mentioned user -> their ID
+    mention_names: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

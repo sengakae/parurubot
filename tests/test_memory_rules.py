@@ -272,3 +272,40 @@ def test_recall():
     assert [m["content"] for m in run(recall(G, None, ANTO, store))] == ["likes tea"]
     assert "going to japan" in [m["content"] for m in run(recall(G, "Ben", ANTO, store))]
     assert [m["content"] for m in run(recall(G, "jules", ANTO, store))] == ["new job"]
+
+
+def mention_msg(message_id, content, names):
+    m = qmsg(message_id, content=content, mention_ids=list(names.values()))
+    m.mention_names = names
+    return m
+
+
+def test_mention_add_links_and_files_under_user():
+    store = FakeStore()
+    run(store.add_memory(G, None, "benjamin", "fact", "hates cilantro", False, CHEUNG, None))
+    m = mention_msg(1, "@Benjamin is going to japan", {"benjamin": BEN})
+    reacts = run(apply_ops([Op("add", 1, subject="name", name="@Benjamin", content="going to japan")], context(m, members={}), store))
+    assert run(store.get_links(G)) == {"benjamin": BEN}
+    assert {r["content"]: r["user_id"] for r in store.facts()} == {
+        "hates cilantro": BEN, "going to japan": BEN
+    }
+    assert reacts == [1]
+
+
+def test_mention_name_linked_to_other_files_under_mentioned():
+    store = FakeStore()
+    run(store.link_name(G, "ben", ANTO, CHEUNG, None))
+    m = mention_msg(1, "@ben is going to japan", {"ben": BEN})
+    run(apply_ops([Op("add", 1, subject="name", name="ben", content="going to japan")], context(m), store))
+    assert run(store.get_links(G)) == {"ben": ANTO}
+    [row] = store.facts()
+    assert row["user_id"] == BEN
+
+
+def test_mention_locked_name_not_taken():
+    store = FakeStore()
+    m = mention_msg(1, "@sengakae is cooking", {"sengakae": CHEUNG})
+    run(apply_ops([Op("add", 1, subject="name", name="sengakae", content="cooking")], context(m, members={}), store))
+    assert run(store.get_links(G)) == {}
+    [row] = store.facts()
+    assert row["user_id"] == CHEUNG

@@ -84,6 +84,18 @@ async def _apply_add(op, msg, ctx, store) -> bool:
     if name is None:
         return False
     links = await store.get_links(ctx.guild_id)
+
+    # An @mention is an exact account: link the name to it if the name is free,
+    # and file the fact under that account either way.
+    mentioned_id = msg.mention_names.get(name)
+    if mentioned_id is not None:
+        if name not in LOCKED_NAMES and name not in links:
+            await store.link_name(ctx.guild_id, name, mentioned_id, msg.author_id, msg.id)
+        await store.add_memory(
+            ctx.guild_id, mentioned_id, name, "fact", content, op.joke, msg.author_id, msg.id
+        )
+        return True
+
     user_id = LOCKED_NAMES.get(name) or links.get(name)
     if user_id is None:
         addressed = op.addressed and name in msg.content.casefold()

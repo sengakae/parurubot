@@ -44,6 +44,17 @@ def member_name_map(guild) -> dict[str, int]:
     return names
 
 
+def _mention_names(message) -> dict[str, int]:
+    names = {}
+    for user in message.mentions:
+        if user.bot:
+            continue
+        for name in (user.display_name, user.name):
+            if name:
+                names.setdefault(name.casefold(), user.id)
+    return names
+
+
 def _reply_author_id(message) -> int | None:
     reference = message.reference
     resolved = getattr(reference, "resolved", None) if reference else None
@@ -245,6 +256,7 @@ class MemoriesCog(commands.Cog):
                 mention_ids=[u.id for u in message.mentions if not u.bot],
                 reply_to_author_id=_reply_author_id(message),
                 created_at=message.created_at,
+                mention_names=_mention_names(message),
             )
         )
 
