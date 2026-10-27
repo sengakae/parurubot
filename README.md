@@ -152,6 +152,23 @@ discord-bot/
   - **Delete sheet** - Removes the signup sheet (only the creator who ran `!signup`)
   - Sheets are saved to the database and keep working after the bot restarts
 
+### Memories
+- Paruru learns facts and running jokes about people in the server from normal conversation, not only from `paruru,` chats
+  - Messages wait in memory and are only read when the bot is next called (`paruru,`, a `!` command, or a quote); every channel in that server is processed then, minus the newest 3 messages, which wait for the next call so replies and reactions are visible
+  - A message that produced a memory gets a 📝 reaction
+  - Messages deleted before they are read are never saved; edits are read in their latest form
+  - Things you say about yourself go on your profile; things said about a name are saved under that name until it is linked to someone
+  - Names link to people from conversation ("that's ben", "i'm ben") or by the admin (`paruru, @someone is ben`); a link merges that name's memories into the person
+  - `sengakae` is locked to its owner and can't be linked to anyone else
+  - Jokes are kept and flagged so paruru brings them up playfully, never as fact
+- **`!aboutme`** - Shows what paruru remembers about you (no arguments, only your own)
+  - **Remove a memory...** - Dropdown that removes a memory right away (removing a name unlinks it)
+  - **Add memory** - Opens a text box to add one yourself; memories you add can't be changed by other people's messages
+  - **◀ ▶** - Pages when you have more than 25 memories
+  - Only you can use the controls; also available in chat with `paruru, show me my memories`
+- In chat, ask about someone (`paruru, where is ben going?`) and paruru looks up what she knows
+- Requires the **Server Members Intent** enabled in the Discord Developer Portal
+
 ### Reminders
 - **`!remindme <message> <time>`** - Schedule a reminder in the current channel
   - **Countdown**: `30m`, `2h15m`, `1d2h` (supports combinations of days, hours, minutes, and seconds)
