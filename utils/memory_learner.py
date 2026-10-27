@@ -6,13 +6,14 @@ import logging
 
 from google.genai import types
 
-from utils.ai import _generate_with_error_retry, extract_response_text
+from utils.ai import MODEL, _generate_with_error_retry, extract_response_text
 from utils.memory_queue import QueuedMessage
 from utils.memory_rules import Op
 
 logger = logging.getLogger(__name__)
 
-LEARNER_MODEL = "gemini-3.5-flash-lite"
+# Same model as chat.
+LEARNER_MODEL = MODEL
 
 LEARNER_INSTRUCTIONS = """You maintain a shared memory of the people in a Discord server.
 You get recent messages and return changes to the memory as JSON ops. Most messages contain nothing worth remembering; returning no ops is normal.

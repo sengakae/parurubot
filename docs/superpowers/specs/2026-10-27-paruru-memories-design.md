@@ -102,7 +102,7 @@ Name links are the `kind = 'name'` rows that have a `user_id`. A unique index on
   - validate memory IDs belong to the guild
   - **owner-added memories are protected** (builder's call): `update`/`forget` are rejected on rows where `added_by` equals `user_id` and the op's message author is someone else
 - **Reaction:** add 📝 to the source message for every applied `add`, `update`, and `link`. Not for `forget`. Failures (deleted message, missing permission) are ignored.
-- **Model:** a cheaper model than chat (Gemini Flash-Lite), no personality prompt.
+- **Model:** the same model as chat (`gemini-2.5-flash`, via `utils.ai.MODEL`), no personality prompt. Flash-Lite models were unavailable to this API key.
 - Pending queue lives in memory; whatever is pending at restart is lost (my call: acceptable at this scale).
 
 ### `!aboutme` (layout B)
