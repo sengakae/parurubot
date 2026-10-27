@@ -11,11 +11,16 @@ import db
 from utils.identity import speaker_label
 from utils.memory_learner import build_learner_prompt, extract_ops
 from utils.memory_queue import PendingQueue, QueuedMessage
-from utils.memory_rules import ApplyContext, apply_ops, ensure_locked_links
+from utils.memory_rules import (LOCKED_NAMES, ApplyContext, apply_ops,
+                                ensure_locked_links, remove_for_owner)
 
 logger = logging.getLogger(__name__)
 
 MEMORY_REACTION = "📝"
+PAGE_SIZE = 25
+SELECT_LABEL_LIMIT = 100
+EMBED_DESCRIPTION_LIMIT = 4096
+MEMORY_INPUT_LIMIT = 200
 _WORD_RE = re.compile(r"[\w'-]+")
 
 
@@ -44,6 +49,140 @@ def _reply_author_id(message) -> int | None:
     resolved = getattr(reference, "resolved", None) if reference else None
     author = getattr(resolved, "author", None)
     return author.id if author else None
+
+
+def page_slice(memories: list[dict], page: int) -> tuple[list[dict], int]:
+    pages = max(1, -(-len(memories) // PAGE_SIZE))
+    start = page * PAGE_SIZE
+    return memories[start : start + PAGE_SIZE], pages
+
+
+def format_memory_line(index: int, memory: dict) -> str:
+    text = f"goes by {memory['content']}" if memory["kind"] == "name" else memory["content"]
+    return f"{index}. {text}"
+
+
+def select_label(index: int, memory: dict) -> str:
+    return format_memory_line(index, memory)[:SELECT_LABEL_LIMIT]
+
+
+def remove_options(items: list[dict], start: int) -> list[tuple[int, str]]:
+    """(memory_id, label) for the page's removable memories; locked names can't be removed."""
+    return [
+        (memory["id"], select_label(start + i + 1, memory))
+        for i, memory in enumerate(items)
+        if not (memory["kind"] == "name" and memory["content"] in LOCKED_NAMES)
+    ]
+
+
+def build_aboutme_embed(display_name: str, memories: list[dict], page: int) -> discord.Embed:
+    embed = discord.Embed(title=f"what i know about {display_name}")
+    if not memories:
+        embed.description = "i don't know anything about you yet"
+        return embed
+    items, pages = page_slice(memories, page)
+    start = page * PAGE_SIZE
+    lines = [format_memory_line(start + i + 1, m) for i, m in enumerate(items)]
+    embed.description = "\n".join(lines)[:EMBED_DESCRIPTION_LIMIT]
+    embed.set_footer(text=f"{len(memories)} memories · page {page + 1}/{pages}")
+    return embed
+
+
+class RemoveMemorySelect(discord.ui.Select):
+    def __init__(self, options: list[tuple[int, str]]):
+        super().__init__(
+            placeholder="Remove a memory...",
+            options=[discord.SelectOption(label=label, value=str(memory_id)) for memory_id, label in options],
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        view: "AboutMeView" = self.view
+        await remove_for_owner(view.guild_id, int(self.values[0]), view.owner.id, view.store)
+        await view.refresh(interaction)
+
+
+class AddMemoryModal(discord.ui.Modal, title="Add a memory"):
+    def __init__(self, view: "AboutMeView"):
+        super().__init__()
+        self.about_view = view
+        self.memory = discord.ui.TextInput(
+            label="Memory", max_length=MEMORY_INPUT_LIMIT, placeholder="plays wuthering waves"
+        )
+        self.add_item(self.memory)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        text = self.memory.value.strip()
+        if not text:
+            await interaction.response.send_message("memory can't be empty", ephemeral=True)
+            return
+        view = self.about_view
+        await view.store.add_memory(
+            view.guild_id, view.owner.id, None, "fact", text, False, view.owner.id, None
+        )
+        await view.refresh(interaction)
+
+
+class AddMemoryButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Add memory", style=discord.ButtonStyle.success, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(AddMemoryModal(self.view))
+
+
+class PageButton(discord.ui.Button):
+    def __init__(self, label: str, step: int, disabled: bool):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, row=1, disabled=disabled)
+        self.step = step
+
+    async def callback(self, interaction: discord.Interaction):
+        self.view.page += self.step
+        await self.view.refresh(interaction)
+
+
+class AboutMeView(discord.ui.View):
+    def __init__(self, owner, guild_id: int, memories: list[dict], store=db):
+        super().__init__(timeout=600)
+        self.owner = owner
+        self.guild_id = guild_id
+        self.memories = memories
+        self.store = store
+        self.page = 0
+        self._build()
+
+    def embed(self) -> discord.Embed:
+        return build_aboutme_embed(self.owner.display_name, self.memories, self.page)
+
+    def _build(self):
+        self.clear_items()
+        items, pages = page_slice(self.memories, self.page)
+        options = remove_options(items, self.page * PAGE_SIZE)
+        if options:
+            self.add_item(RemoveMemorySelect(options))
+        self.add_item(AddMemoryButton())
+        if pages > 1:
+            self.add_item(PageButton("◀", -1, disabled=self.page == 0))
+            self.add_item(PageButton("▶", 1, disabled=self.page >= pages - 1))
+
+    async def refresh(self, interaction: discord.Interaction):
+        self.memories = await self.store.get_user_memories(self.guild_id, self.owner.id)
+        _, pages = page_slice(self.memories, 0)
+        self.page = min(self.page, pages - 1)
+        self._build()
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner.id:
+            await interaction.response.send_message("this isn't yours", ephemeral=True)
+            return False
+        return True
+
+
+async def send_aboutme(channel, member, store=db) -> None:
+    memories = await store.get_user_memories(channel.guild.id, member.id)
+    view = AboutMeView(member, channel.guild.id, memories, store)
+    await channel.send(embed=view.embed(), view=view)
 
 
 class MemoriesCog(commands.Cog):
@@ -136,6 +275,13 @@ class MemoriesCog(commands.Cog):
             logger.exception("Memory processing failed for guild %s", guild.id)
         finally:
             self._running.discard(guild.id)
+
+    @commands.command(name="aboutme", help="Show and edit what paruru remembers about you")
+    async def aboutme(self, ctx):
+        if ctx.guild is None:
+            await ctx.send("This command can only be used in a server.")
+            return
+        await send_aboutme(ctx.channel, ctx.author, self.store)
 
     async def _relevant_memories(self, guild_id, batch, member_names, links) -> list[dict]:
         user_ids = set()
