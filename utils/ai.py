@@ -1,7 +1,10 @@
+import asyncio
 import io
 import json
 import logging
+import re
 import time
+from datetime import datetime, timezone
 
 from google import genai
 from google.genai import types
@@ -25,6 +28,7 @@ MAX_API_RETRIES = 3
 # finds nothing (e.g. obscure handles). Retry it, then fall back to no search.
 MAX_EMPTY_RETRIES = 2
 EMPTY_RESPONSE_TEXT = "No response generated."
+MAX_TOOL_STEPS = 5
 
 
 def extract_response_text(response) -> str | None:
@@ -75,7 +79,7 @@ def _is_retryable_error(error: Exception) -> bool:
 
 def generate_content_with_retry(**kwargs) -> str:
     for attempt in range(MAX_EMPTY_RETRIES):
-        text = _generate_with_error_retry(**kwargs)
+        text = extract_response_text(_generate_with_error_retry(**kwargs))
         if text:
             return text
         logger.warning(
@@ -86,19 +90,20 @@ def generate_content_with_retry(**kwargs) -> str:
     if config is not None and config.tools:
         logger.warning("Retrying Gemini request without web search")
         no_search = config.model_copy(update={"tools": None})
-        text = _generate_with_error_retry(**{**kwargs, "config": no_search})
+        text = extract_response_text(
+            _generate_with_error_retry(**{**kwargs, "config": no_search})
+        )
         if text:
             return text
 
     return EMPTY_RESPONSE_TEXT
 
 
-def _generate_with_error_retry(**kwargs) -> str | None:
+def _generate_with_error_retry(**kwargs):
     last_error = None
     for attempt in range(MAX_API_RETRIES):
         try:
-            response = client.models.generate_content(**kwargs)
-            return extract_response_text(response)
+            return client.models.generate_content(**kwargs)
         except Exception as e:
             last_error = e
             if attempt == MAX_API_RETRIES - 1 or not _is_retryable_error(e):
@@ -169,14 +174,17 @@ def convert_video_to_part(url):
     return {"file_data": {"mime_type": "video/*", "fileUri": url}}
 
 
-def chat_with_ai(
+async def chat_with_ai(
     cleaned_content,
+    tool_ctx,
     history_context="",
     notes_context="",
     images=None,
     videos=None,
 ):
-    """Generate a response from the AI given user input, optional history, and notes."""
+    """Generate a response from the AI, letting it call the tools in utils.tools."""
+    # Imported here because utils.tools imports this module.
+    from utils.tools import TOOL_DECLARATIONS, TOOL_GUIDANCE, run_tool
 
     system_message = f"{SYSTEM_PROMPT}{notes_context}"
 
@@ -186,6 +194,9 @@ def chat_with_ai(
     if videos:
         logger.info(f"Processing {len(videos)} YouTube videos")
         system_message = VIDEO_SUMMARY_PROMPT
+
+    now = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    system_message += f"{TOOL_GUIDANCE}\nThe current time is {now} UTC."
 
     conversation = []
 
@@ -206,18 +217,68 @@ def chat_with_ai(
 
     conversation.append({"role": "user", "parts": current_prompt})
 
-    logger.info("Using web search for response")
     config = types.GenerateContentConfig(
-        tools=[types.Tool(google_search=types.GoogleSearch())],
+        tools=[types.Tool(function_declarations=TOOL_DECLARATIONS)],
         system_instruction=system_message,
         thinking_config=types.ThinkingConfig(include_thoughts=False),
     )
 
-    final_text = generate_content_with_retry(
-        model=MODEL,
-        contents=conversation,
-        config=config,
+    # Same declarations (the conversation may hold earlier calls) but no new calls allowed.
+    no_tools_config = config.model_copy(
+        update={
+            "tool_config": types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                    mode=types.FunctionCallingConfigMode.NONE
+                )
+            )
+        }
     )
+
+    current_config = config
+    final_text = None
+    tool_steps = 0
+    empty_responses = 0
+    while True:
+        response = await asyncio.to_thread(
+            _generate_with_error_retry,
+            model=MODEL,
+            contents=conversation,
+            config=current_config,
+        )
+        calls = response.function_calls if current_config is config else None
+        if calls:
+            results = await asyncio.gather(
+                *(run_tool(tool_ctx, call.name, call.args) for call in calls)
+            )
+            conversation.append(response.candidates[0].content)
+            conversation.append(
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_function_response(name=call.name, response=result)
+                        for call, result in zip(calls, results)
+                    ],
+                )
+            )
+            tool_steps += 1
+            if tool_steps >= MAX_TOOL_STEPS:
+                logger.warning(f"Reached {MAX_TOOL_STEPS} tool steps; answering without tools")
+                current_config = no_tools_config
+            continue
+
+        final_text = extract_response_text(response)
+        if final_text or current_config is no_tools_config:
+            break
+        empty_responses += 1
+        if empty_responses >= MAX_EMPTY_RETRIES:
+            logger.warning("Retrying Gemini request without tools")
+            current_config = no_tools_config
+        else:
+            logger.warning(
+                f"Empty Gemini response (attempt {empty_responses}/{MAX_EMPTY_RETRIES})"
+            )
+
+    final_text = final_text or EMPTY_RESPONSE_TEXT
 
     if "tool_code" in final_text or "print(" in final_text:
         logger.warning("Internal tool strings leaked, stripping out code remnants.")
@@ -232,7 +293,18 @@ def chat_with_ai(
         ]
         final_text = "\n".join(clean_lines).strip()
 
-    return final_text.lower().strip()
+    return _lower_keep_timestamps(final_text).strip()
+
+
+# Discord timestamp styles are case-sensitive (<t:123:R> works, <t:123:r> doesn't).
+_DISCORD_TIMESTAMP_RE = re.compile(r"(<t:\d+(?::[tTdDfFR])?>)")
+
+
+def _lower_keep_timestamps(text: str) -> str:
+    return "".join(
+        part if _DISCORD_TIMESTAMP_RE.fullmatch(part) else part.lower()
+        for part in _DISCORD_TIMESTAMP_RE.split(text)
+    )
 
 
 def generate_quiz_question(level: str, category: str):

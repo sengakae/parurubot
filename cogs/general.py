@@ -7,6 +7,7 @@ from discord.ext import commands
 
 import history
 from utils.ai import generate_quiz_question, summarize_channel
+from utils.messages import fetch_channel_messages
 
 logger = logging.getLogger(__name__)
 
@@ -66,16 +67,9 @@ class GeneralCog(commands.Cog):
 
             await ctx.send(prompt)
 
-            messages = []
-            async for message in ctx.channel.history(limit=limit, after=after):
-                if message.author != self.bot.user and message.content.strip():
-                    messages.append(
-                        {
-                            "author": message.author.display_name,
-                            "content": message.content,
-                            "timestamp": message.created_at.isoformat(),
-                        }
-                    )
+            messages = await fetch_channel_messages(
+                ctx.channel, self.bot.user, limit, after
+            )
 
             if not messages:
                 await ctx.send("No messages found to summarize")

@@ -15,6 +15,7 @@ from utils.ai import chat_with_ai, convert_pil_to_part
 from utils.links import collect_images_from_message, extract_youtube_urls
 from utils.messages import split_message
 from utils.notes import load_personal_notes, search_personal_notes
+from utils.tools import ToolContext
 
 logging.basicConfig(
     level=logging.INFO,
@@ -217,7 +218,9 @@ async def handle_ai_chat(message):
             msg["images"] for msg in history_messages
         )
 
-        relevant_notes = search_personal_notes(cleaned_content, n_results=2)
+        relevant_notes = await asyncio.to_thread(
+            search_personal_notes, cleaned_content, n_results=2
+        )
         notes_context = ""
         if relevant_notes:
             notes_context = (
@@ -225,13 +228,15 @@ async def handle_ai_chat(message):
             )
             logger.info("Found relevant notes for this query")
 
+        tool_ctx = ToolContext(bot=bot, message=message)
+
         async def ask(include_images):
             history_context = build_history_context(history_messages, include_images)
             return await asyncio.wait_for(
-                asyncio.to_thread(
-                    chat_with_ai,
+                chat_with_ai(
                     f"[message from {speaker_label(message.author)}]\n"
                     f"{cleaned_content}",
+                    tool_ctx,
                     history_context,
                     notes_context,
                     current_images,
@@ -248,7 +253,8 @@ async def handle_ai_chat(message):
                     raise
                 except Exception as e:
                     # A bad image in history would otherwise break every query until !clear.
-                    if not history_has_images:
+                    # Don't retry once a tool has changed something, or it would run twice.
+                    if not history_has_images or tool_ctx.actions:
                         raise
                     logger.warning(
                         f"AI request with history images failed ({e}); "
@@ -257,9 +263,10 @@ async def handle_ai_chat(message):
                     response_text = await ask(include_images=False)
             except asyncio.TimeoutError:
                 logger.warning("AI response timed out")
-                await message.channel.send(
-                    "that took too much thinking, gonna take a nap..."
-                )
+                reply = "that took too much thinking, gonna take a nap..."
+                if tool_ctx.actions:
+                    reply += "\nbut i did get this done: " + "; ".join(tool_ctx.actions)
+                await message.channel.send(reply)
                 return
 
         logger.info(f"Response: {response_text}")

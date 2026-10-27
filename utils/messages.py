@@ -57,3 +57,23 @@ def split_message(text: str, limit: int = CHAR_LIMIT) -> list[str]:
         remaining = remaining[split_at:].lstrip()
 
     return chunks
+
+
+async def fetch_channel_messages(channel, bot_user, limit, after=None):
+    """The newest `limit` non-bot, non-empty messages (after `after`, if given), oldest first.
+
+    Each message is a dict with author/content/timestamp.
+    """
+    messages = []
+    # oldest_first=False so a busy window yields its newest messages, not its oldest.
+    async for message in channel.history(limit=limit, after=after, oldest_first=False):
+        if message.author != bot_user and message.content.strip():
+            messages.append(
+                {
+                    "author": message.author.display_name,
+                    "content": message.content,
+                    "timestamp": message.created_at.isoformat(),
+                }
+            )
+    messages.reverse()
+    return messages
