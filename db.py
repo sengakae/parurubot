@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import random
@@ -6,6 +7,8 @@ import secrets
 import asyncpg
 
 pool = None
+# Set once init_db has created every table (pool is set before that).
+schema_ready = asyncio.Event()
 
 
 async def init_db():
@@ -74,6 +77,29 @@ async def init_db():
             ALTER TABLE signup_sheets
                 ADD COLUMN IF NOT EXISTS closed BOOLEAN NOT NULL DEFAULT FALSE
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS memories (
+                id SERIAL PRIMARY KEY,
+                guild_id BIGINT NOT NULL,
+                user_id BIGINT,
+                name TEXT,
+                kind TEXT NOT NULL,
+                content TEXT NOT NULL,
+                joke BOOLEAN NOT NULL DEFAULT FALSE,
+                added_by BIGINT NOT NULL,
+                source_message_id BIGINT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS memories_name_idx
+                ON memories (guild_id, content) WHERE kind = 'name'
+        """)
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS memories_user_idx ON memories (guild_id, user_id)"
+        )
+    schema_ready.set()
 
 
 async def add_quote(key, value):
@@ -314,3 +340,135 @@ async def get_all_signup_sheets():
             }
             for row in rows
         ]
+
+
+_MEMORY_COLUMNS = (
+    "id, guild_id, user_id, name, kind, content, joke, added_by, source_message_id"
+)
+
+
+async def add_memory(
+    guild_id, user_id, name, kind, content, joke, added_by, source_message_id
+):
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            """
+            INSERT INTO memories (
+                guild_id, user_id, name, kind, content, joke, added_by, source_message_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id
+            """,
+            guild_id,
+            user_id,
+            name,
+            kind,
+            content,
+            joke,
+            added_by,
+            source_message_id,
+        )
+
+
+async def update_memory(memory_id, content, joke):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE memories SET content = $2, joke = $3, updated_at = NOW() WHERE id = $1",
+            memory_id,
+            content,
+            joke,
+        )
+
+
+async def delete_memory(memory_id):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM memories WHERE id = $1", memory_id)
+
+
+async def get_memory(memory_id):
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT {_MEMORY_COLUMNS} FROM memories WHERE id = $1", memory_id
+        )
+        return dict(row) if row else None
+
+
+async def get_user_memories(guild_id, user_id):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"SELECT {_MEMORY_COLUMNS} FROM memories "
+            "WHERE guild_id = $1 AND user_id = $2 ORDER BY created_at, id",
+            guild_id,
+            user_id,
+        )
+        return [dict(row) for row in rows]
+
+
+async def get_name_memories(guild_id, name):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"SELECT {_MEMORY_COLUMNS} FROM memories "
+            "WHERE guild_id = $1 AND name = $2 AND user_id IS NULL "
+            "ORDER BY created_at, id",
+            guild_id,
+            name,
+        )
+        return [dict(row) for row in rows]
+
+
+async def get_links(guild_id):
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT content, user_id FROM memories WHERE guild_id = $1 AND kind = 'name'",
+            guild_id,
+        )
+        return {row["content"]: row["user_id"] for row in rows}
+
+
+async def link_name(guild_id, name, user_id, added_by, source_message_id):
+    """Link a name to a user and merge that name's memories into the user."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            memory_id = await conn.fetchval(
+                """
+                INSERT INTO memories (
+                    guild_id, user_id, name, kind, content, added_by, source_message_id
+                )
+                VALUES ($1, $2, $3, 'name', $3, $4, $5)
+                RETURNING id
+                """,
+                guild_id,
+                user_id,
+                name,
+                added_by,
+                source_message_id,
+            )
+            await conn.execute(
+                "UPDATE memories SET user_id = $3 "
+                "WHERE guild_id = $1 AND name = $2 AND user_id IS NULL",
+                guild_id,
+                name,
+                user_id,
+            )
+            return memory_id
+
+
+async def unlink_name(guild_id, name):
+    """Remove a name link; memories said under that name move back to the name."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            user_id = await conn.fetchval(
+                "DELETE FROM memories WHERE guild_id = $1 AND kind = 'name' "
+                "AND content = $2 RETURNING user_id",
+                guild_id,
+                name,
+            )
+            if user_id is None:
+                return
+            await conn.execute(
+                "UPDATE memories SET user_id = NULL WHERE guild_id = $1 AND name = $2 "
+                "AND kind = 'fact' AND user_id = $3",
+                guild_id,
+                name,
+                user_id,
+            )

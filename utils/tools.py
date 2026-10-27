@@ -6,12 +6,15 @@ arguments, so a user can only act on their own reminders and the current channel
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 import db
+from cogs.memories import send_aboutme
 from utils.ai import (MODEL, _generate_with_error_retry, extract_response_text,
                       grounding_config)
+from utils.memory_rules import admin_link, recall
 from utils.messages import fetch_channel_messages
 from utils.notes import search_personal_notes
 from utils.reminders import (describe_recurrence, discord_timestamp, next_occurrence,
@@ -32,8 +35,15 @@ TOOL_GUIDANCE = (
     "didn't say their timezone, ask them instead of guessing. "
     "When you set or list reminders, tell the user the ID and show the 'when' value exactly as "
     "given (it is a Discord timestamp that renders in their local time). "
+    "Use recall_person when someone asks about a person (or about themselves, with name \"me\"). "
+    "Memories marked joke are running bits: bring them up playfully, never state them as fact. "
+    "Use show_my_memories when someone asks to see their memories, and link_name when the "
+    "admin tells you \"@user is <name>\". "
     "Don't call tools for casual chat."
 )
+
+# Store for the memory tools; tests swap in a fake.
+memory_store = db
 
 TOOL_DECLARATIONS = [
     {
@@ -124,6 +134,39 @@ TOOL_DECLARATIONS = [
                 "hours": {"type": "integer", "description": "Look back this many hours."},
                 "count": {"type": "integer", "description": "Number of recent messages."},
             },
+        },
+    },
+    {
+        "name": "recall_person",
+        "description": (
+            "Look up what you remember about a person in this server. Use the name as "
+            "the user wrote it, or \"me\" for the person talking to you."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "A name, or \"me\"."}
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "show_my_memories",
+        "description": "Post the memories embed for the person talking to you.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "link_name",
+        "description": (
+            "Admin only: link a name to the user @mentioned in the message, e.g. "
+            "\"@xCooki3s is ben\"."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "The name to link."}
+            },
+            "required": ["name"],
         },
     },
 ]
@@ -266,6 +309,44 @@ async def read_recent_messages(ctx, hours=None, count=None):
     }
 
 
+async def recall_person(ctx, name=None):
+    memories = await recall(
+        ctx.message.guild.id, name, ctx.message.author.id, memory_store
+    )
+    if not memories:
+        return {"result": "nothing remembered"}
+    return {
+        "memories": [
+            {
+                "content": f"goes by {m['content']}" if m["kind"] == "name" else m["content"],
+                "joke": m["joke"],
+            }
+            for m in memories
+        ]
+    }
+
+
+async def show_my_memories(ctx):
+    await send_aboutme(ctx.message.channel, ctx.message.author, memory_store)
+    ctx.actions.append("showed memories")
+    return {"result": "shown"}
+
+
+async def link_name(ctx, name):
+    if ctx.message.author.id != int(os.getenv("OWNER_ID", "0")):
+        return {"error": "only the admin can link names"}
+    target = next((u for u in ctx.message.mentions if not u.bot), None)
+    if target is None:
+        return {"error": "mention the user to link, e.g. @someone is ben"}
+    try:
+        status = await admin_link(
+            ctx.message.guild.id, name, target.id, ctx.message.author.id, memory_store
+        )
+    except ValueError as e:
+        return {"error": str(e)}
+    return {"result": status}
+
+
 HANDLERS = {
     "search_web": search_web,
     "search_notes": search_notes,
@@ -274,6 +355,9 @@ HANDLERS = {
     "list_my_reminders": list_my_reminders,
     "cancel_reminder": cancel_reminder,
     "read_recent_messages": read_recent_messages,
+    "recall_person": recall_person,
+    "show_my_memories": show_my_memories,
+    "link_name": link_name,
 }
 
 
