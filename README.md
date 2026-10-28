@@ -156,6 +156,7 @@ discord-bot/
 - Paruru learns facts and running jokes about people in the server from normal conversation, not only from `paruru,` chats
   - Messages wait in memory and are only read when the bot is next called (`paruru,`, a `!` command, or a quote); every channel in that server is processed then, minus the newest 3 messages, which wait for the next call so replies and reactions are visible. Things said straight to paruru (`paruru, ...`) are learned right away
   - Messages deleted before they are read are never saved; edits are read in their latest form
+  - Daily game score posts (messages with 3 or more square emoji like 🟩🟨⬛) are ignored
   - Things you say about yourself go on your profile; things said about a name are saved under that name until it is linked to someone. Names must belong to someone in the server, except when told straight to paruru, which starts a new profile for that name
   - Names link to people from conversation, from @mentions, or by the admin; a link merges that name's memories into the person
   - Jokes are kept and flagged so paruru brings them up playfully, never as fact
