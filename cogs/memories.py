@@ -21,6 +21,14 @@ SELECT_LABEL_LIMIT = 100
 EMBED_DESCRIPTION_LIMIT = 4096
 MEMORY_INPUT_LIMIT = 200
 _WORD_RE = re.compile(r"[\w'-]+")
+# Square emoji used in daily game score grids (Wordle-style results).
+# Black/white large squares plus the colored squares (red through brown).
+_BLOCK_EMOJI_RE = re.compile("[⬛⬜\U0001f7e5-\U0001f7eb]")
+MIN_SCORE_BLOCKS = 3
+
+
+def is_game_score(text: str) -> bool:
+    return len(_BLOCK_EMOJI_RE.findall(text)) >= MIN_SCORE_BLOCKS
 
 
 def is_direct(text: str) -> bool:
@@ -33,6 +41,7 @@ def should_queue(message) -> bool:
         and not message.author.bot
         and bool(message.content.strip())
         and not message.content.lstrip().startswith("!")
+        and not is_game_score(message.content)
     )
 
 

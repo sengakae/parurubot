@@ -197,3 +197,23 @@ def test_direct_statement_processed_on_its_own_call(monkeypatch):
     asyncio.run(scenario())
     assert len(calls) == 1
     assert not cog.queue.is_pending(1)
+
+
+DAILY_BLUE = (
+    "Daily Blue #11: Beat Blue\n"
+    "🟩🟩⬛🟩🟩🟩  5/6 left · 12 turns\n"
+    "Streak 1 · #DailyBlue\n"
+    "daily-red.com/blue"
+)
+
+
+def test_daily_game_scores_not_queued():
+    assert should_queue(discord_msg(DAILY_BLUE)) is False
+    wordle = "Wordle 1,234 3/6\n\n⬜🟨⬜⬜⬜\n⬜🟩🟩⬜🟨\n🟩🟩🟩🟩🟩"
+    assert should_queue(discord_msg(wordle)) is False
+    assert should_queue(discord_msg("🟥🟧🟦")) is False
+
+
+def test_few_block_emojis_still_queued():
+    assert should_queue(discord_msg("green means go 🟩")) is True
+    assert should_queue(discord_msg("🟩🟩 two is fine")) is True
