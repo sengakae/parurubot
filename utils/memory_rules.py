@@ -157,7 +157,7 @@ _APPLIERS = {
 
 
 async def apply_ops(ops: list[Op], ctx: ApplyContext, store=db) -> list[int]:
-    """Apply allowed ops. Returns the source message ids to react to."""
+    """Apply allowed ops. Returns the source message ids of applied adds, updates and links."""
     react_ids = []
     for op in ops:
         msg = ctx.messages.get(op.message_id)

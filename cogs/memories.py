@@ -16,7 +16,6 @@ from utils.memory_rules import (LOCKED_NAMES, ApplyContext, apply_ops,
 
 logger = logging.getLogger(__name__)
 
-MEMORY_REACTION = "📝"
 PAGE_SIZE = 25
 SELECT_LABEL_LIMIT = 100
 EMBED_DESCRIPTION_LIMIT = 4096
@@ -366,27 +365,15 @@ class MemoriesCog(commands.Cog):
                 member_names=member_names,
                 is_pending=self.queue.is_pending,
             )
-            react_ids = await apply_ops(ops, apply_ctx, self.store)
+            changed_ids = await apply_ops(ops, apply_ctx, self.store)
             self.queue.mark_processed(channel_id, batch[-1].id)
             logger.info(
                 "Memories: channel %s, %d messages, %d ops proposed, %d applied",
                 channel_id,
                 len(batch),
                 len(ops),
-                len(react_ids),
+                len(changed_ids),
             )
-
-            get_channel = getattr(guild, "get_channel_or_thread", guild.get_channel)
-            channel = get_channel(channel_id)
-            if channel is None:
-                continue
-            for message_id in react_ids:
-                try:
-                    await channel.get_partial_message(message_id).add_reaction(
-                        MEMORY_REACTION
-                    )
-                except discord.HTTPException:
-                    pass
 
 
 async def setup(bot):

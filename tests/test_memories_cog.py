@@ -89,7 +89,7 @@ def test_paruru_called_ignores_dms():
     assert cog._running == set()
 
 
-def test_process_guild_marks_and_reacts(monkeypatch):
+def test_process_guild_saves_without_reacting(monkeypatch):
     store = FakeStore()
     cog = MemoriesCog(bot=NS(), store=store)
     queue_messages(cog, 6)
@@ -101,7 +101,7 @@ def test_process_guild_marks_and_reacts(monkeypatch):
     reactions = []
     asyncio.run(cog.process_guild(make_guild(reactions)))
 
-    assert reactions == ["📝"]
+    assert reactions == []
     assert len(store.facts()) == 1
     assert not cog.queue.is_pending(3)
     assert cog.queue.is_pending(4)  # held back
@@ -117,24 +117,6 @@ def test_process_guild_failure_keeps_pending(monkeypatch):
     monkeypatch.setattr(memories_mod, "extract_ops", failing_extract)
     asyncio.run(cog.process_guild(make_guild([])))
     assert cog.queue.is_pending(1)
-
-
-def test_reaction_failure_ignored(monkeypatch):
-    cog = MemoriesCog(bot=NS(), store=FakeStore())
-    queue_messages(cog, 6)
-
-    async def fake_extract(prompt):
-        return [Op("add", 1, subject="self", content="likes tea")]
-
-    class Failing:
-        async def add_reaction(self, emoji):
-            raise discord.HTTPException(NS(status=403, reason="Forbidden"), "missing permissions")
-
-    channel = NS(id=10, get_partial_message=lambda _id: Failing())
-    guild = NS(id=1, members=[], get_channel=lambda _id: channel)
-    monkeypatch.setattr(memories_mod, "extract_ops", fake_extract)
-    asyncio.run(cog.process_guild(guild))
-    assert not cog.queue.is_pending(1)
 
 
 def test_on_ready_waits_for_schema(monkeypatch):
