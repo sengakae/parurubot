@@ -6,8 +6,44 @@ import utils.tools as tools
 URL = "https://example.com/apple-ipad-ad"
 
 
-def ctx():
-    return tools.ToolContext(bot=NS(), message=NS())
+class FakeChannel:
+    """fetch_message returns each stored version of a message in turn (Discord
+    fills in link previews a moment after a message is posted)."""
+
+    def __init__(self, *messages):
+        self.versions = {}
+        self.order = []
+        for m in messages:
+            versions = m if isinstance(m, list) else [m]
+            self.versions[versions[0].id] = list(versions)
+            self.order.append(versions[0].id)
+
+    async def fetch_message(self, message_id):
+        versions = self.versions[message_id]
+        return versions.pop(0) if len(versions) > 1 else versions[0]
+
+    async def history(self, limit=100):
+        for message_id in reversed(self.order[-limit:]):
+            yield self.versions[message_id][-1]
+
+
+def msg(id, content, embeds=(), reply_to=None):
+    reference = NS(message_id=reply_to) if reply_to else None
+    return NS(id=id, content=content, embeds=list(embeds), reference=reference)
+
+
+def embed(url=URL, title="Apple pulls iPad mini ad", description="The pinch gesture..."):
+    return NS(url=url, title=title, description=description,
+              provider=NS(name="Tech Times"), author=NS(name=None))
+
+
+def ctx(current=None, *others):
+    current = current or msg(1, "paruru, what's this")
+    first = current[0] if isinstance(current, list) else current
+    return tools.ToolContext(bot=NS(), message=NS(
+        id=first.id, content=first.content, reference=first.reference,
+        channel=FakeChannel(*others, current),
+    ))
 
 
 def response(text, statuses):
@@ -63,3 +99,82 @@ def test_read_url_rejects_non_http(monkeypatch):
 def test_read_url_is_declared():
     assert "read_url" in tools.HANDLERS
     assert any(d["name"] == "read_url" for d in tools.TOOL_DECLARATIONS)
+
+
+FAILED = ["URL_RETRIEVAL_STATUS_PAYWALL"]
+
+
+def patch_failed_read(monkeypatch):
+    monkeypatch.setattr(tools, "_generate_with_error_retry",
+                        fake_generate(response("guess", FAILED), []))
+    monkeypatch.setattr(tools, "PREVIEW_RETRY_DELAY", 0)
+
+
+def test_failed_read_falls_back_to_preview_on_current_message(monkeypatch):
+    patch_failed_read(monkeypatch)
+    current = msg(1, f"paruru, what's this {URL}", [embed()])
+    result = asyncio.run(tools.read_url(ctx(current), url=URL))
+    assert result["preview"] == {
+        "site": "Tech Times",
+        "title": "Apple pulls iPad mini ad",
+        "description": "The pinch gesture...",
+    }
+    assert "preview" in result["note"]
+    assert "error" not in result
+
+
+def test_preview_waits_for_discord_to_attach_embed(monkeypatch):
+    patch_failed_read(monkeypatch)
+    current = [msg(1, f"paruru, what's this {URL}"),
+               msg(1, f"paruru, what's this {URL}", [embed()])]
+    result = asyncio.run(tools.read_url(ctx(current), url=URL))
+    assert result["preview"]["title"] == "Apple pulls iPad mini ad"
+
+
+def test_preview_from_replied_message(monkeypatch):
+    patch_failed_read(monkeypatch)
+    linked = msg(5, f"look {URL}", [embed()])
+    current = msg(9, "paruru, what's this link talking about", reply_to=5)
+    result = asyncio.run(tools.read_url(ctx(current, linked), url=URL))
+    assert result["preview"]["title"] == "Apple pulls iPad mini ad"
+
+
+def test_preview_from_recent_channel_history(monkeypatch):
+    patch_failed_read(monkeypatch)
+    linked = msg(5, f"look {URL}", [embed()])
+    chatter = msg(6, "lol")
+    current = msg(9, "paruru, what was ben's link about")
+    result = asyncio.run(tools.read_url(ctx(current, linked, chatter), url=URL))
+    assert result["preview"]["title"] == "Apple pulls iPad mini ad"
+
+
+def test_preview_tolerates_tracking_params(monkeypatch):
+    patch_failed_read(monkeypatch)
+    shared = f"{URL}?s=19&utm_source=x"
+    current = msg(1, f"paruru {shared} and https://other.com/x",
+                  [embed(url="https://other.com/x", title="Other"), embed(url=URL + "/")])
+    result = asyncio.run(tools.read_url(ctx(current), url=shared))
+    assert result["preview"]["title"] == "Apple pulls iPad mini ad"
+
+
+def test_no_preview_for_a_different_link(monkeypatch):
+    patch_failed_read(monkeypatch)
+    current = msg(1, f"paruru {URL} https://other.com/x",
+                  [embed(url="https://other.com/x", title="Other")])
+    result = asyncio.run(tools.read_url(ctx(current), url=URL))
+    assert "error" in result
+
+
+def test_failed_read_without_any_preview_is_an_error(monkeypatch):
+    patch_failed_read(monkeypatch)
+    current = msg(1, f"paruru, what's this {URL}")
+    result = asyncio.run(tools.read_url(ctx(current), url=URL))
+    assert "error" in result
+    assert "preview" not in result
+
+
+def test_preview_when_model_drops_tracking_params(monkeypatch):
+    patch_failed_read(monkeypatch)
+    current = msg(1, f"paruru {URL}?s=19", [embed()])
+    result = asyncio.run(tools.read_url(ctx(current), url=URL))
+    assert result["preview"]["title"] == "Apple pulls iPad mini ad"
