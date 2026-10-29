@@ -21,6 +21,11 @@ grounding_config = types.GenerateContentConfig(
     thinking_config=types.ThinkingConfig(include_thoughts=False),
 )
 
+url_context_config = types.GenerateContentConfig(
+    tools=[types.Tool(url_context=types.UrlContext())],
+    thinking_config=types.ThinkingConfig(include_thoughts=False),
+)
+
 client = genai.Client(api_key=GEMINI_API_KEY)
 MODEL = "gemini-2.5-flash"
 MAX_API_RETRIES = 3

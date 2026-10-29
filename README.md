@@ -11,6 +11,7 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 - **Smart Response Types**: Automatically detects when to provide current information vs. conversational responses
 - **Image Analysis**: Attach images to your messages for AI-powered analysis and description
 - **YouTube Integration**: Share YouTube videos for AI discussion and analysis
+- **Link Reading**: Ask about a link ("paruru, what is this article about? <url>") and she opens the page and answers from what it actually says; if the page can't be opened (paywall, login, blocked), she says so instead of guessing
 
 ### Personal Notes Management
 - **Vector Database**: Automatically loads and indexes `.txt`, `.csv`, and `.json` files from the `notes/` folder

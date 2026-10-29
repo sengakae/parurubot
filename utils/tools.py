@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import db
 from cogs.memories import send_aboutme
 from utils.ai import (MODEL, _generate_with_error_retry, extract_response_text,
-                      grounding_config)
+                      grounding_config, url_context_config)
 from utils.memory_rules import admin_link, recall
 from utils.messages import fetch_channel_messages
 from utils.notes import search_personal_notes
@@ -28,7 +28,10 @@ MAX_RECAP_CHARS = 300
 
 TOOL_GUIDANCE = (
     "\n\nYou can call tools. Use search_web for current events or facts you aren't sure of, "
-    "search_notes for anything that might be in your personal notes, get_weather for weather, "
+    "read_url whenever someone asks about a link (what it says, is it true, summarize it): "
+    "never guess a page's content from its URL or the chat around it. If read_url fails, "
+    "say you couldn't open it. "
+    "Use search_notes for anything that might be in your personal notes, get_weather for weather, "
     "the reminder tools when someone asks to be reminded or to see/cancel their reminders, and "
     "read_recent_messages when asked about what was said in this channel. "
     "For reminders at a clock time, convert to ISO 8601 with a numeric UTC offset; if the user "
@@ -55,6 +58,21 @@ TOOL_DECLARATIONS = [
                 "query": {"type": "string", "description": "What to search for."}
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "read_url",
+        "description": "Open a web page and read what it actually says.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The full link, with https://."},
+                "question": {
+                    "type": "string",
+                    "description": "Optional: what the user wants to know about the page.",
+                },
+            },
+            "required": ["url"],
         },
     },
     {
@@ -199,6 +217,33 @@ async def search_web(ctx, query):
     text = extract_response_text(response)
     if not text:
         return {"error": "The search returned nothing."}
+    return {"result": text}
+
+
+async def read_url(ctx, url, question=None):
+    # Its own request for the same reason as search_web: url_context is a built-in
+    # tool and can't share a request with function declarations on gemini-2.5.
+    if not url.startswith(("http://", "https://")):
+        return {"error": "Only http(s) links can be read."}
+    prompt = f"Read this page: {url}\n\n" + (
+        f"Answer from the page: {question}" if question
+        else "Summarize what the page says."
+    )
+    response = await asyncio.to_thread(
+        _generate_with_error_retry,
+        model=MODEL,
+        contents=prompt,
+        config=url_context_config,
+    )
+    # Without a successful fetch the model only has the URL and would guess
+    # from the slug, which is the behavior this tool exists to avoid.
+    metadata = getattr(response.candidates[0], "url_context_metadata", None)
+    statuses = [m.url_retrieval_status for m in (metadata.url_metadata or [])] if metadata else []
+    if "URL_RETRIEVAL_STATUS_SUCCESS" not in statuses:
+        return {"error": f"Couldn't open the page ({', '.join(map(str, statuses)) or 'not fetched'})."}
+    text = extract_response_text(response)
+    if not text:
+        return {"error": "The page was read but nothing came back."}
     return {"result": text}
 
 
@@ -356,6 +401,7 @@ async def link_name(ctx, name):
 
 HANDLERS = {
     "search_web": search_web,
+    "read_url": read_url,
     "search_notes": search_notes,
     "get_weather": get_weather,
     "set_reminder": set_reminder,
