@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from db import get_quote_by_key, init_db
 from history import add_message_to_history, get_channel_history
 from utils.ai import chat_with_ai, convert_pil_to_part
-from utils.identity import speaker_label
+from utils.identity import speaker_label, user_turn
 from utils.links import collect_images_from_message, extract_youtube_urls
 from utils.messages import split_message
 from utils.notes import load_personal_notes, search_personal_notes
@@ -168,6 +168,7 @@ async def handle_ai_chat(message):
         )
 
         """Check replied message"""
+        replied_msg = None
         if message.reference:
             try:
                 replied_msg = message.reference.resolved
@@ -229,8 +230,7 @@ async def handle_ai_chat(message):
             history_context = build_history_context(history_messages, include_images)
             return await asyncio.wait_for(
                 chat_with_ai(
-                    f"[message from {speaker_label(message.author)}]\n"
-                    f"{cleaned_content}",
+                    user_turn(message.author, cleaned_content, replied_msg),
                     tool_ctx,
                     history_context,
                     notes_context,
