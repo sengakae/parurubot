@@ -9,11 +9,15 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
+
+import discord
 
 import db
 from cogs.memories import send_aboutme
 from utils.ai import (MODEL, _generate_with_error_retry, extract_response_text,
                       grounding_config, url_context_config)
+from utils.links import extract_links
 from utils.memory_rules import admin_link, recall
 from utils.messages import fetch_channel_messages
 from utils.notes import search_personal_notes
@@ -25,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 MAX_RECAP_MESSAGES = 200
 MAX_RECAP_CHARS = 300
+# How far back to look for the message that posted a link, and how long to wait
+# for Discord to attach a preview to a just-posted one.
+PREVIEW_HISTORY_LIMIT = 50
+PREVIEW_RETRY_DELAY = 2
 
 TOOL_GUIDANCE = (
     "\n\nYou can call tools. Use search_web for current events or facts you aren't sure of, "
@@ -239,12 +247,82 @@ async def read_url(ctx, url, question=None):
     # from the slug, which is the behavior this tool exists to avoid.
     metadata = getattr(response.candidates[0], "url_context_metadata", None)
     statuses = [m.url_retrieval_status for m in (metadata.url_metadata or [])] if metadata else []
-    if "URL_RETRIEVAL_STATUS_SUCCESS" not in statuses:
-        return {"error": f"Couldn't open the page ({', '.join(map(str, statuses)) or 'not fetched'})."}
     text = extract_response_text(response)
-    if not text:
-        return {"error": "The page was read but nothing came back."}
-    return {"result": text}
+    if "URL_RETRIEVAL_STATUS_SUCCESS" in statuses and text:
+        return {"result": text}
+
+    # Paywalls, logins and bot-blocking sites (x.com, etc.) often still give Discord
+    # a preview card, since Discord fetches it as a crawler.
+    preview = await _link_preview(ctx, url)
+    if preview:
+        return {
+            "preview": preview,
+            "note": (
+                "Couldn't open the page itself; this is only Discord's link preview. "
+                "Answer from it, say you only saw the preview, and don't fill in details "
+                "it doesn't give."
+            ),
+        }
+    return {"error": f"Couldn't open the page ({', '.join(map(str, statuses)) or 'not fetched'})."}
+
+
+def _normalize_url(url: str) -> str:
+    parts = urlsplit(url.strip())
+    host = parts.netloc.lower().removeprefix("www.")
+    return f"{host}{parts.path.rstrip('/')}"
+
+
+def _posts_link(message, url) -> bool:
+    # Normalized, since the model may drop tracking params from the link it was given.
+    target = _normalize_url(url)
+    return any(_normalize_url(link) == target for link in extract_links(message.content))
+
+
+def _preview_from(message, url):
+    """The embed for `url` in `message`, as the fields worth showing the model."""
+    if not _posts_link(message, url):
+        return None
+    embeds = [e for e in message.embeds if e.title or e.description]
+    target = _normalize_url(url)
+    match = next((e for e in embeds if e.url and _normalize_url(e.url) == target), None)
+    # Link fixers (vxtwitter, fixvx) give embeds a different URL than the one posted;
+    # with a single link in the message its embed can only belong to that link.
+    if match is None and len(extract_links(message.content)) == 1 and embeds:
+        match = embeds[0]
+    if match is None:
+        return None
+    fields = {
+        "site": match.provider.name or match.author.name,
+        "title": match.title,
+        "description": match.description,
+    }
+    return {k: v for k, v in fields.items() if v}
+
+
+async def _link_preview(ctx, url):
+    """Discord's preview of `url`: from the asking message, the one it replies to,
+    or a recent message that posted the link."""
+    channel = ctx.message.channel
+    try:
+        current = await channel.fetch_message(ctx.message.id)
+        # Discord attaches previews a moment after posting, so a link in the asking
+        # message itself may not have its embed yet.
+        if _posts_link(current, url) and not current.embeds:
+            await asyncio.sleep(PREVIEW_RETRY_DELAY)
+            current = await channel.fetch_message(ctx.message.id)
+        if preview := _preview_from(current, url):
+            return preview
+        reference = ctx.message.reference
+        if reference and reference.message_id:
+            replied = await channel.fetch_message(reference.message_id)
+            if preview := _preview_from(replied, url):
+                return preview
+        async for message in channel.history(limit=PREVIEW_HISTORY_LIMIT):
+            if preview := _preview_from(message, url):
+                return preview
+    except discord.HTTPException as e:
+        logger.warning("Could not look up a link preview: %s", e)
+    return None
 
 
 async def search_notes(ctx, query):
