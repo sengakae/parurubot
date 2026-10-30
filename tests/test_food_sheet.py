@@ -184,6 +184,7 @@ def test_sync_loads_one_chunk_per_row(monkeypatch, coll):
     assert doc == notes.render_row(notes.sheet_rows(content.decode(), FOOD)[0], FOOD)
     assert meta == {"source": "sheet:vancouver_food", "type": "sheet",
                     "file_hash": hashlib.md5(content).hexdigest(), "chunk": 0,
+                    "template_hash": meta["template_hash"],
                     "area": "vancouver", "region": "japanese", "cuisine": "noodles", "price": "$"}
     assert get.calls[0][1]["timeout"] == 30
 

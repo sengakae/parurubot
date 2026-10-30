@@ -77,6 +77,8 @@ def cleanup_deleted_files():
 
 TEMPLATES_FOLDER = Path("templates")
 TEMPLATE_KEYS = ("url", "columns", "required", "row", "fields")
+# metadata keys sync_sheet sets itself; a template field with one of these names would overwrite it
+RESERVED_FIELDS = {"source", "type", "file_hash", "template_hash", "chunk"}
 
 
 def short_maps_url(url: str) -> str:
@@ -103,6 +105,24 @@ def _placeholders(part: str) -> list[str]:
     return [name for _, name, _, _ in string.Formatter().parse(part) if name]
 
 
+def _check_types(filename: str, template: dict) -> None:
+    def str_dict(value):
+        return isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items())
+
+    def str_list(value):
+        return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+    for key, check, expected in (
+        ("columns", str_dict, "an object of strings"),
+        ("transforms", str_dict, "an object of strings"),
+        ("row", str_list, "a list of strings"),
+        ("required", str_list, "a list of strings"),
+        ("fields", str_list, "a list of strings"),
+    ):
+        if not check(template[key]):
+            raise ValueError(f"{filename}: {key} must be {expected}")
+
+
 def load_template(path: Path) -> dict:
     """Read and validate one sheet template. Raises ValueError with the reason."""
     try:
@@ -117,10 +137,16 @@ def load_template(path: Path) -> dict:
         raise ValueError(f"{path.name}: missing {missing}")
     if not isinstance(template["url"], str) or not template["url"]:
         raise ValueError(f"{path.name}: url must be a non-empty string")
+    template.setdefault("transforms", {})
+    _check_types(path.name, template)
     if not template["required"]:
         raise ValueError(f"{path.name}: required must list at least one column")
+    reserved = sorted(RESERVED_FIELDS & set(template["fields"]))
+    if reserved:
+        raise ValueError(f"{path.name}: fields {reserved} are reserved names")
 
-    template.setdefault("transforms", {})
+    # match headers the way sheet_rows normalizes them, so "Link:" in a template works
+    template["columns"] = {normalize_header(header): key for header, key in template["columns"].items()}
     keys = set(template["columns"].values())
     referenced = (
         [name for part in template["row"] for name in _placeholders(part)]
@@ -147,7 +173,7 @@ def load_templates(folder: Path = TEMPLATES_FOLDER) -> dict[str, dict | None]:
     for path in sorted(folder.glob("*.json")):
         try:
             templates[path.stem] = load_template(path)
-        except ValueError:
+        except Exception:  # one bad file must never stop the other sheets
             logger.exception("Skipping sheet template %s", path.name)
             templates[path.stem] = None
     return templates
@@ -264,8 +290,14 @@ def _sync_sheet(name: str, template: dict) -> None:
         return
 
     fhash = hashlib.md5(response.content).hexdigest()
+    # a template edit (wording, fields) must reapply even when the sheet itself didn't change
+    thash = hashlib.md5(json.dumps(template, sort_keys=True).encode()).hexdigest()
     unchanged = collection.get(
-        where={"$and": [{"source": {"$eq": source}}, {"file_hash": {"$eq": fhash}}]},
+        where={"$and": [
+            {"source": {"$eq": source}},
+            {"file_hash": {"$eq": fhash}},
+            {"template_hash": {"$eq": thash}},
+        ]},
         limit=1,
     )
     if unchanged["ids"]:
@@ -284,6 +316,7 @@ def _sync_sheet(name: str, template: dict) -> None:
                 "source": source,
                 "type": "sheet",
                 "file_hash": fhash,
+                "template_hash": thash,
                 "chunk": i,
                 **{field: row[field].lower() for field in template["fields"]},
             }

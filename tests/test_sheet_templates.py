@@ -153,3 +153,47 @@ def test_sync_all_never_raises(tmp_path, monkeypatch, coll):
 
     monkeypatch.setattr(notes, "load_templates", boom)
     notes.sync_all_sheets(tmp_path)
+
+
+# --- review fixes ---
+
+@pytest.mark.parametrize("data", [
+    {**TOY, "columns": ["title"]},
+    {**TOY, "row": ["{title}", 5]},
+    {**TOY, "required": True},
+    {**TOY, "transforms": ["title"]},
+    {**TOY, "columns": {"title": ["title"]}},
+    {**TOY, "fields": "author"},
+])
+def test_load_template_rejects_wrong_types(tmp_path, data):
+    with pytest.raises(ValueError):
+        notes.load_template(write(tmp_path, "bad.json", data))
+
+
+@pytest.mark.parametrize("reserved", ["type", "source", "file_hash", "template_hash", "chunk"])
+def test_load_template_rejects_reserved_field_names(tmp_path, reserved):
+    data = {**TOY, "columns": {**TOY["columns"], "kind": reserved}, "fields": [reserved]}
+    with pytest.raises(ValueError):
+        notes.load_template(write(tmp_path, "bad.json", data))
+
+
+def test_load_template_normalizes_column_headers(tmp_path):
+    data = {**TOY, "columns": {"Title:": "title", " AUTHOR ": "author", "year": "year"}}
+    loaded = notes.load_template(write(tmp_path, "toy.json", data))
+    rows = notes.sheet_rows("Title:,Author,Year\nDune,Herbert,1965\n", loaded)
+    assert rows == [{"title": "Dune", "author": "Herbert", "year": "1965"}]
+
+
+def test_sync_all_wrong_type_template_does_not_stop_others(tmp_path, coll, get_calls):
+    write(tmp_path, "bad.json", {**TOY, "columns": ["title"]})
+    write(tmp_path, "books.json", TOY)
+    notes.sync_all_sheets(tmp_path)
+    assert "books_sheet_0" in coll.items
+
+
+def test_sync_reapplies_when_template_changes(tmp_path, coll, get_calls):
+    write(tmp_path, "books.json", TOY)
+    notes.sync_all_sheets(tmp_path)
+    write(tmp_path, "books.json", {**TOY, "row": ["{title}", " - {author}"]})
+    notes.sync_all_sheets(tmp_path)
+    assert coll.items["books_sheet_0"][0] == "Dune - Herbert"
