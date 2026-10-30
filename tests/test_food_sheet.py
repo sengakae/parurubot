@@ -1,6 +1,10 @@
+from pathlib import Path
+
 import pytest
 
 import utils.notes as notes
+
+FOOD = notes.load_template(Path("templates/vancouver_food.json"))
 
 HEADER = "Area:,Name:,Region,Cuisine:,Price:,Link:,Notes:\n"
 LONG_URL = (
@@ -10,67 +14,83 @@ LONG_URL = (
 SHORT_URL = "https://www.google.com/maps/place/Kintaro+Ramen/@49.2879,-123.1336,17z"
 ROW = f'Vancouver,Kintaro,Japanese,Noodles,$,"{LONG_URL}",\n'
 FULL = {"area": "Vancouver", "name": "Kintaro", "region": "Japanese",
-        "cuisine": "Noodles", "price": "$", "url": LONG_URL, "notes": ""}
+        "cuisine": "Noodles", "price": "$", "link": SHORT_URL, "notes": ""}
+
+
+def test_food_template_keeps_sheet_url():
+    assert FOOD["url"] == (
+        "https://docs.google.com/spreadsheets/d/1-unWLt6P7gi_U09Oz6W8G4I70xafEya_9HL8-5PyxLw/export?format=csv"
+    )
 
 
 def test_sheet_rows_maps_headers_case_insensitively():
-    assert notes.sheet_rows(HEADER + ROW) == [FULL]
+    assert notes.sheet_rows(HEADER + ROW, FOOD) == [FULL]
+
+
+def test_sheet_rows_shortens_maps_link():
+    assert notes.sheet_rows(HEADER + ROW, FOOD)[0]["link"] == SHORT_URL
 
 
 def test_sheet_rows_strips_bom_from_first_header():
-    assert notes.sheet_rows("﻿" + HEADER + ROW)[0]["area"] == "Vancouver"
+    assert notes.sheet_rows("\ufeff" + HEADER + ROW, FOOD)[0]["area"] == "Vancouver"
 
 
 def test_sheet_rows_strips_cells_and_skips_nameless_rows():
     text = " area: , NAME ,region,cuisine,price,link,notes\n  Richmond ,  Danbo ,,,,, AYCE \n,,,,,,\n"
-    assert notes.sheet_rows(text) == [
+    assert notes.sheet_rows(text, FOOD) == [
         {"area": "Richmond", "name": "Danbo", "region": "", "cuisine": "",
-         "price": "", "url": "", "notes": "AYCE"}
+         "price": "", "link": "", "notes": "AYCE"}
     ]
 
 
 def test_sheet_rows_rejects_html():
     with pytest.raises(ValueError):
-        notes.sheet_rows("<!DOCTYPE html><html><body>Sign in</body></html>")
+        notes.sheet_rows("<!DOCTYPE html><html><body>Sign in</body></html>", FOOD)
 
 
-def test_format_sheet_row_all_fields():
-    assert notes.format_sheet_row(FULL) == (
+def test_render_row_all_fields():
+    assert notes.render_row(FULL, FOOD) == (
         f"Kintaro: Japanese Noodles in Vancouver, price $. map: {SHORT_URL}"
     )
 
 
-def test_format_sheet_row_missing_region():
+def test_render_row_missing_region():
     row = {**FULL, "region": ""}
-    assert notes.format_sheet_row(row) == (
+    assert notes.render_row(row, FOOD) == (
         f"Kintaro: Noodles in Vancouver, price $. map: {SHORT_URL}"
     )
 
 
-def test_format_sheet_row_no_description():
-    row = {**FULL, "region": "", "cuisine": "", "url": ""}
-    assert notes.format_sheet_row(row) == "Kintaro in Vancouver, price $"
+def test_render_row_missing_cuisine():
+    row = {**FULL, "cuisine": ""}
+    assert notes.render_row(row, FOOD) == (
+        f"Kintaro: Japanese in Vancouver, price $. map: {SHORT_URL}"
+    )
 
 
-def test_format_sheet_row_name_only():
+def test_render_row_no_description():
+    row = {**FULL, "region": "", "cuisine": "", "link": ""}
+    assert notes.render_row(row, FOOD) == "Kintaro in Vancouver, price $"
+
+
+def test_render_row_name_only():
     row = {k: "" for k in FULL} | {"name": "Kintaro"}
-    assert notes.format_sheet_row(row) == "Kintaro"
+    assert notes.render_row(row, FOOD) == "Kintaro"
 
 
-def test_format_sheet_row_includes_notes():
-    row = {**FULL, "notes": "AYCE", "url": ""}
-    assert notes.format_sheet_row(row) == "Kintaro: Japanese Noodles (AYCE) in Vancouver, price $"
+def test_render_row_includes_notes():
+    row = {**FULL, "notes": "AYCE", "link": ""}
+    assert notes.render_row(row, FOOD) == "Kintaro: Japanese Noodles (AYCE) in Vancouver, price $"
 
 
-def test_format_sheet_row_url_without_data_drops_query_only():
-    row = {**FULL, "url": "https://maps.app.goo.gl/abc?g_st=ic"}
-    assert notes.format_sheet_row(row).endswith("map: https://maps.app.goo.gl/abc")
+def test_short_maps_url_without_data_drops_query_only():
+    assert notes.short_maps_url("https://maps.app.goo.gl/abc?g_st=ic") == "https://maps.app.goo.gl/abc"
 
 
-def test_format_sheet_row_real_link_fits_search_preview():
+def test_render_row_real_link_fits_search_preview():
     # search_personal_notes cuts each hit to 400 chars; a whole row must survive it
     long_name = {**FULL, "name": "Cafe de l'Orangerie Patisserie", "notes": "Late night only"}
-    assert len(notes.format_sheet_row(long_name)) < 400
+    assert len(notes.render_row(long_name, FOOD)) < 400
 
 
 # --- sync_food_sheet ---

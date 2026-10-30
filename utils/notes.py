@@ -2,6 +2,8 @@ import hashlib
 import io
 import json
 import logging
+import re
+import string
 from pathlib import Path
 
 import pandas as pd
@@ -74,42 +76,8 @@ def cleanup_deleted_files():
         logger.exception(f"Error during cleanup: {e}")
 
 
-SHEET_SOURCE = "sheet:vancouver_food"
-# normalized sheet header -> row key
-SHEET_FIELDS = {
-    "area": "area",
-    "name": "name",
-    "region": "region",
-    "cuisine": "cuisine",
-    "price": "price",
-    "link": "url",
-    "notes": "notes",
-}
-
-
-def sheet_rows(csv_text: str) -> list[dict[str, str]]:
-    """Parse the food sheet CSV into rows keyed by SHEET_FIELDS values. Rows with no name are dropped."""
-    try:
-        df = pd.read_csv(io.StringIO(csv_text.lstrip("﻿")), dtype=str, keep_default_na=False)
-    except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
-        raise ValueError(f"not a CSV: {e}") from e
-
-    columns = {}
-    for col in df.columns:
-        key = SHEET_FIELDS.get(col.strip().lower().rstrip(":").strip())
-        if key:
-            columns[col] = key
-    if "name" not in columns.values():
-        raise ValueError(f"no name column in {list(df.columns)}")
-
-    rows = []
-    for _, record in df.iterrows():
-        row = {key: "" for key in SHEET_FIELDS.values()}
-        for col, key in columns.items():
-            row[key] = record[col].strip()
-        if row["name"]:
-            rows.append(row)
-    return rows
+TEMPLATES_FOLDER = Path("templates")
+TEMPLATE_KEYS = ("url", "columns", "required", "row", "fields")
 
 
 def short_maps_url(url: str) -> str:
@@ -117,21 +85,118 @@ def short_maps_url(url: str) -> str:
     return url.split("/data=", 1)[0].split("?", 1)[0]
 
 
-def format_sheet_row(row: dict[str, str]) -> str:
-    """One place as a sentence, e.g. 'Kintaro: Japanese Noodles in Vancouver, price $. map: <url>'."""
-    text = row["name"]
-    description = " ".join(part for part in (row["region"], row["cuisine"]) if part)
-    if description:
-        text += f": {description}"
-    if row["notes"]:
-        text += f" ({row['notes']})"
-    if row["area"]:
-        text += f" in {row['area']}"
-    if row["price"]:
-        text += f", price {row['price']}"
-    if row["url"]:
-        text += f". map: {short_maps_url(row['url'])}"
-    return text
+# named transforms a template can apply to a column, e.g. {"link": "shorten_maps_url"}
+TRANSFORMS = {"shorten_maps_url": short_maps_url}
+
+_SHEET_EDIT_LINK = re.compile(r"^(https://docs\.google\.com/spreadsheets/d/[^/]+)/edit.*$")
+
+
+def csv_export_url(url: str) -> str:
+    """Turn a Google Sheets share link (.../edit?usp=sharing) into its CSV export link."""
+    return _SHEET_EDIT_LINK.sub(r"\1/export?format=csv", url)
+
+
+def normalize_header(header: str) -> str:
+    return header.lstrip("\ufeff").strip().lower().rstrip(":").strip()
+
+
+def _placeholders(part: str) -> list[str]:
+    return [name for _, name, _, _ in string.Formatter().parse(part) if name]
+
+
+def load_template(path: Path) -> dict:
+    """Read and validate one sheet template. Raises ValueError with the reason."""
+    try:
+        template = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise ValueError(f"can't read {path.name}: {e}") from e
+    if not isinstance(template, dict):
+        raise ValueError(f"{path.name}: expected a JSON object")
+
+    missing = [key for key in TEMPLATE_KEYS if key not in template]
+    if missing:
+        raise ValueError(f"{path.name}: missing {missing}")
+    if not isinstance(template["url"], str) or not template["url"]:
+        raise ValueError(f"{path.name}: url must be a non-empty string")
+    if not template["required"]:
+        raise ValueError(f"{path.name}: required must list at least one column")
+
+    template.setdefault("transforms", {})
+    keys = set(template["columns"].values())
+    referenced = (
+        [name for part in template["row"] for name in _placeholders(part)]
+        + list(template["required"])
+        + list(template["fields"])
+        + list(template["transforms"])
+    )
+    unknown = sorted(set(referenced) - keys)
+    if unknown:
+        raise ValueError(f"{path.name}: {unknown} not in columns")
+    bad_transforms = sorted(set(template["transforms"].values()) - set(TRANSFORMS))
+    if bad_transforms:
+        raise ValueError(f"{path.name}: unknown transforms {bad_transforms}")
+
+    template["url"] = csv_export_url(template["url"])
+    return template
+
+
+def load_templates(folder: Path = TEMPLATES_FOLDER) -> dict[str, dict | None]:
+    """All *.json templates in folder by name (file stem); None marks a file that failed to load."""
+    if not folder.is_dir():
+        return {}
+    templates = {}
+    for path in sorted(folder.glob("*.json")):
+        try:
+            templates[path.stem] = load_template(path)
+        except ValueError:
+            logger.exception("Skipping sheet template %s", path.name)
+            templates[path.stem] = None
+    return templates
+
+
+def sheet_rows(csv_text: str, template: dict) -> list[dict[str, str]]:
+    """Parse a sheet CSV into rows keyed by the template's column keys, with transforms applied.
+    Rows missing a required value are dropped."""
+    try:
+        df = pd.read_csv(io.StringIO(csv_text.lstrip("\ufeff")), dtype=str, keep_default_na=False)
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+        raise ValueError(f"not a CSV: {e}") from e
+
+    columns = {}
+    for col in df.columns:
+        key = template["columns"].get(normalize_header(col))
+        if key:
+            columns[col] = key
+    absent = [key for key in template["required"] if key not in columns.values()]
+    if absent:
+        raise ValueError(f"required columns {absent} not in {list(df.columns)}")
+
+    rows = []
+    for _, record in df.iterrows():
+        row = {key: "" for key in template["columns"].values()}
+        for col, key in columns.items():
+            row[key] = record[col].strip()
+        if not all(row[key] for key in template["required"]):
+            continue
+        for key, name in template.get("transforms", {}).items():
+            if row[key]:
+                row[key] = TRANSFORMS[name](row[key])
+        rows.append(row)
+    return rows
+
+
+def render_row(row: dict[str, str], template: dict) -> str:
+    """Fill the template's row parts; a part whose placeholders are all empty is dropped."""
+    parts = []
+    for part in template["row"]:
+        names = _placeholders(part)
+        if names and not any(row.get(name) for name in names):
+            continue
+        for name in names:
+            # replace, not str.format, so braces inside cell values are never re-parsed
+            part = part.replace("{" + name + "}", row.get(name, ""))
+        parts.append(part)
+    return " ".join("".join(parts).split())
 
 
 def sync_food_sheet(url: str | None = None) -> None:

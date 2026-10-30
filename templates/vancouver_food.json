@@ -1,0 +1,16 @@
+{
+  "url": "https://docs.google.com/spreadsheets/d/1-unWLt6P7gi_U09Oz6W8G4I70xafEya_9HL8-5PyxLw/export?format=csv",
+  "columns": {
+    "area": "area",
+    "name": "name",
+    "region": "region",
+    "cuisine": "cuisine",
+    "price": "price",
+    "link": "link",
+    "notes": "notes"
+  },
+  "required": ["name"],
+  "row": ["{name}", ": {region} {cuisine}", " ({notes})", " in {area}", ", price {price}", ". map: {link}"],
+  "fields": ["area", "region", "cuisine", "price"],
+  "transforms": {"link": "shorten_maps_url"}
+}
