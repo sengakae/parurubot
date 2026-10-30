@@ -1,9 +1,13 @@
 import hashlib
+import io
 import json
 import logging
+import re
+import string
 from pathlib import Path
 
 import pandas as pd
+import requests
 
 from utils.chroma_client import collection
 
@@ -52,6 +56,8 @@ def cleanup_deleted_files():
         deleted_sources = set()
         
         for doc_id, metadata in zip(results["ids"], results["metadatas"]):
+            if metadata.get("type") == "sheet":
+                continue  # synced from a Google Sheet, not a file in notes/
             source = metadata.get("source", "")
             if source and source not in current_files:
                 chunks_to_remove.append(doc_id)
@@ -67,6 +73,260 @@ def cleanup_deleted_files():
             
     except Exception as e:
         logger.exception(f"Error during cleanup: {e}")
+
+
+TEMPLATES_FOLDER = Path("templates")
+TEMPLATE_KEYS = ("url", "columns", "required", "row", "fields")
+# metadata keys sync_sheet sets itself; a template field with one of these names would overwrite it
+RESERVED_FIELDS = {"source", "type", "file_hash", "template_hash", "chunk"}
+
+
+def short_maps_url(url: str) -> str:
+    """Drop the long /data= tail and query string; the place path and coordinates still open the place."""
+    return url.split("/data=", 1)[0].split("?", 1)[0]
+
+
+# named transforms a template can apply to a column, e.g. {"link": "shorten_maps_url"}
+TRANSFORMS = {"shorten_maps_url": short_maps_url}
+
+_SHEET_EDIT_LINK = re.compile(r"^(https://docs\.google\.com/spreadsheets/d/[^/]+)/edit.*$")
+
+
+def csv_export_url(url: str) -> str:
+    """Turn a Google Sheets share link (.../edit?usp=sharing) into its CSV export link."""
+    return _SHEET_EDIT_LINK.sub(r"\1/export?format=csv", url)
+
+
+def normalize_header(header: str) -> str:
+    return header.lstrip("\ufeff").strip().lower().rstrip(":").strip()
+
+
+def _placeholders(part: str) -> list[str]:
+    return [name for _, name, _, _ in string.Formatter().parse(part) if name]
+
+
+def _check_types(filename: str, template: dict) -> None:
+    def str_dict(value):
+        return isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items())
+
+    def str_list(value):
+        return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+    for key, check, expected in (
+        ("columns", str_dict, "an object of strings"),
+        ("transforms", str_dict, "an object of strings"),
+        ("row", str_list, "a list of strings"),
+        ("required", str_list, "a list of strings"),
+        ("fields", str_list, "a list of strings"),
+    ):
+        if not check(template[key]):
+            raise ValueError(f"{filename}: {key} must be {expected}")
+
+
+def load_template(path: Path) -> dict:
+    """Read and validate one sheet template. Raises ValueError with the reason."""
+    try:
+        template = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise ValueError(f"can't read {path.name}: {e}") from e
+    if not isinstance(template, dict):
+        raise ValueError(f"{path.name}: expected a JSON object")
+
+    missing = [key for key in TEMPLATE_KEYS if key not in template]
+    if missing:
+        raise ValueError(f"{path.name}: missing {missing}")
+    if not isinstance(template["url"], str) or not template["url"]:
+        raise ValueError(f"{path.name}: url must be a non-empty string")
+    template.setdefault("transforms", {})
+    _check_types(path.name, template)
+    if not template["required"]:
+        raise ValueError(f"{path.name}: required must list at least one column")
+    reserved = sorted(RESERVED_FIELDS & set(template["fields"]))
+    if reserved:
+        raise ValueError(f"{path.name}: fields {reserved} are reserved names")
+
+    # match headers the way sheet_rows normalizes them, so "Link:" in a template works
+    template["columns"] = {normalize_header(header): key for header, key in template["columns"].items()}
+    keys = set(template["columns"].values())
+    referenced = (
+        [name for part in template["row"] for name in _placeholders(part)]
+        + list(template["required"])
+        + list(template["fields"])
+        + list(template["transforms"])
+    )
+    unknown = sorted(set(referenced) - keys)
+    if unknown:
+        raise ValueError(f"{path.name}: {unknown} not in columns")
+    bad_transforms = sorted(set(template["transforms"].values()) - set(TRANSFORMS))
+    if bad_transforms:
+        raise ValueError(f"{path.name}: unknown transforms {bad_transforms}")
+
+    template["url"] = csv_export_url(template["url"])
+    return template
+
+
+def load_templates(folder: Path = TEMPLATES_FOLDER) -> dict[str, dict | None]:
+    """All *.json templates in folder by name (file stem); None marks a file that failed to load."""
+    if not folder.is_dir():
+        return {}
+    templates = {}
+    for path in sorted(folder.glob("*.json")):
+        try:
+            templates[path.stem] = load_template(path)
+        except Exception:  # one bad file must never stop the other sheets
+            logger.exception("Skipping sheet template %s", path.name)
+            templates[path.stem] = None
+    return templates
+
+
+def sheet_rows(csv_text: str, template: dict) -> list[dict[str, str]]:
+    """Parse a sheet CSV into rows keyed by the template's column keys, with transforms applied.
+    Rows missing a required value are dropped."""
+    try:
+        df = pd.read_csv(io.StringIO(csv_text.lstrip("\ufeff")), dtype=str, keep_default_na=False)
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+        raise ValueError(f"not a CSV: {e}") from e
+
+    columns = {}
+    for col in df.columns:
+        key = template["columns"].get(normalize_header(col))
+        if key:
+            columns[col] = key
+    absent = [key for key in template["required"] if key not in columns.values()]
+    if absent:
+        raise ValueError(f"required columns {absent} not in {list(df.columns)}")
+
+    rows = []
+    for _, record in df.iterrows():
+        row = {key: "" for key in template["columns"].values()}
+        for col, key in columns.items():
+            row[key] = record[col].strip()
+        if not all(row[key] for key in template["required"]):
+            continue
+        for key, name in template.get("transforms", {}).items():
+            if row[key]:
+                row[key] = TRANSFORMS[name](row[key])
+        rows.append(row)
+    return rows
+
+
+def render_row(row: dict[str, str], template: dict) -> str:
+    """Fill the template's row parts; a part whose placeholders are all empty is dropped."""
+    parts = []
+    for part in template["row"]:
+        names = _placeholders(part)
+        if names and not any(row.get(name) for name in names):
+            continue
+        for name in names:
+            # replace, not str.format, so braces inside cell values are never re-parsed
+            part = part.replace("{" + name + "}", row.get(name, ""))
+        parts.append(part)
+    return " ".join("".join(parts).split())
+
+
+def sheet_source(name: str) -> str:
+    return f"sheet:{name}"
+
+
+def sync_all_sheets(folder: Path = TEMPLATES_FOLDER) -> None:
+    """Sync every template in folder, then drop entries of sheets whose template file is gone.
+
+    Blocking. Never raises: an escaping exception would end the daily tasks.loop until the bot restarts.
+    """
+    try:
+        if not folder.is_dir():
+            logger.warning("Sheet templates folder %s not found, skipping sheet sync", folder)
+            return
+        templates = load_templates(folder)
+        for name, template in templates.items():
+            if template is not None:
+                sync_sheet(name, template)
+
+        # invalid-but-present templates count as present, so their old entries are kept
+        present = {sheet_source(name) for name in templates}
+        sheets = collection.get(where={"type": {"$eq": "sheet"}})
+        removed = [
+            doc_id
+            for doc_id, metadata in zip(sheets["ids"], sheets["metadatas"])
+            if metadata.get("source") not in present
+        ]
+        if removed:
+            collection.delete(ids=removed)
+            logger.info("Removed %s entries of deleted sheet templates", len(removed))
+    except Exception:
+        logger.exception("Sheet sync failed")
+
+
+def sync_sheet(name: str, template: dict) -> None:
+    """Reload one sheet into the vector DB if it changed. Blocking; any failure keeps the old entries.
+
+    Never raises, so one sheet can't stop the others or the daily loop.
+    """
+    try:
+        _sync_sheet(name, template)
+    except Exception:
+        logger.exception("Sheet %s sync failed, keeping existing data", name)
+
+
+def _sync_sheet(name: str, template: dict) -> None:
+    source = sheet_source(name)
+    try:
+        response = requests.get(template["url"], timeout=30)
+    except requests.RequestException:
+        logger.exception("Sheet %s download failed, keeping existing data", name)
+        return
+    if response.status_code != 200:
+        logger.warning("Sheet %s download returned %s, keeping existing data", name, response.status_code)
+        return
+
+    try:
+        # Google omits the charset sometimes, and requests then guesses latin-1; decode ourselves
+        rows = sheet_rows(response.content.decode("utf-8-sig"), template)
+    except (UnicodeDecodeError, ValueError):
+        logger.exception("Sheet %s isn't a usable CSV, keeping existing data", name)
+        return
+    if not rows:
+        logger.warning("Sheet %s has no usable rows, keeping existing data", name)
+        return
+
+    fhash = hashlib.md5(response.content).hexdigest()
+    # a template edit (wording, fields) must reapply even when the sheet itself didn't change
+    thash = hashlib.md5(json.dumps(template, sort_keys=True).encode()).hexdigest()
+    unchanged = collection.get(
+        where={"$and": [
+            {"source": {"$eq": source}},
+            {"file_hash": {"$eq": fhash}},
+            {"template_hash": {"$eq": thash}},
+        ]},
+        limit=1,
+    )
+    if unchanged["ids"]:
+        logger.info("Sheet %s unchanged (%s rows)", name, len(rows))
+        return
+
+    # upsert before deleting leftovers, so searches never see an empty sheet and a failed
+    # upsert leaves the old rows in place
+    old_ids = set(collection.get(where={"source": {"$eq": source}})["ids"])
+    new_ids = [f"{name}_sheet_{i}" for i in range(len(rows))]
+    collection.upsert(
+        documents=[render_row(row, template) for row in rows],
+        ids=new_ids,
+        metadatas=[
+            {
+                "source": source,
+                "type": "sheet",
+                "file_hash": fhash,
+                "template_hash": thash,
+                "chunk": i,
+                **{field: row[field].lower() for field in template["fields"]},
+            }
+            for i, row in enumerate(rows)
+        ],
+    )
+    stale_ids = old_ids - set(new_ids)
+    if stale_ids:
+        collection.delete(ids=list(stale_ids))
+    logger.info("Loaded sheet %s (%s rows, removed %s stale)", name, len(rows), len(stale_ids))
 
 
 def load_personal_notes():

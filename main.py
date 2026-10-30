@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 from db import get_quote_by_key, init_db
@@ -14,7 +14,7 @@ from utils.ai import chat_with_ai, convert_pil_to_part
 from utils.identity import speaker_label, user_turn
 from utils.links import collect_images_from_message, extract_youtube_urls
 from utils.messages import split_message
-from utils.notes import load_personal_notes, search_personal_notes
+from utils.notes import load_personal_notes, search_personal_notes, sync_all_sheets
 from utils.tools import ToolContext
 
 logging.basicConfig(
@@ -40,6 +40,11 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
+@tasks.loop(hours=24)
+async def sheet_sync():
+    await asyncio.get_running_loop().run_in_executor(None, sync_all_sheets)
+
+
 @bot.event
 async def on_ready():
     """Called when the bot is ready and connected"""
@@ -56,6 +61,9 @@ async def on_ready():
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, load_personal_notes)
+    # after load_personal_notes so its cleanup pass runs first; on_ready fires again on reconnect
+    if not sheet_sync.is_running():
+        sheet_sync.start()
 
     server_count = len(bot.guilds)
     for server in bot.guilds:
