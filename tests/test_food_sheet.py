@@ -123,8 +123,9 @@ class FakeCollection:
         value = cond["$eq"] if isinstance(cond, dict) else cond
         return metadata.get(field) == value
 
-    def get(self, where=None, limit=None):
-        ids = [i for i, (_, m) in self.items.items() if self._match(m, where)][:limit]
+    def get(self, ids=None, where=None, limit=None):
+        ids = [i for i, (_, m) in self.items.items()
+               if (ids is None or i in ids) and self._match(m, where)][:limit]
         return {"ids": ids, "metadatas": [self.items[i][1] for i in ids],
                 "documents": [self.items[i][0] for i in ids]}
 
@@ -267,3 +268,38 @@ def test_sync_never_raises_on_unexpected_error(monkeypatch, coll):
     before = dict(coll.items)
     sync(monkeypatch, exc=RuntimeError("surprise"))
     assert coll.items == before
+
+
+NAMES = [f"Place{i}" for i in range(10)]
+
+
+def test_sync_upserts_in_small_batches(monkeypatch, coll):
+    # one big upsert embeds every row at once; 198 rows peaked at ~680 MB and OOM-killed the e2-micro
+    sizes = []
+    real_upsert = coll.upsert
+
+    def recording_upsert(documents, ids, metadatas):
+        sizes.append(len(ids))
+        real_upsert(documents=documents, ids=ids, metadatas=metadatas)
+
+    monkeypatch.setattr(coll, "upsert", recording_upsert)
+    sync(monkeypatch, content=csv_bytes(*NAMES))
+    assert max(sizes) <= notes.UPSERT_BATCH_SIZE == 4
+    assert len(coll.items) == len(NAMES)
+
+
+def test_sync_retries_after_partial_upsert(monkeypatch, coll):
+    real_upsert = coll.upsert
+    calls = []
+
+    def dies_on_second_batch(documents, ids, metadatas):
+        calls.append(ids)
+        if len(calls) == 2:
+            raise MemoryError("killed mid-sync")
+        real_upsert(documents=documents, ids=ids, metadatas=metadatas)
+
+    monkeypatch.setattr(coll, "upsert", dies_on_second_batch)
+    sync(monkeypatch, content=csv_bytes(*NAMES))
+    monkeypatch.setattr(coll, "upsert", real_upsert)
+    sync(monkeypatch, content=csv_bytes(*NAMES))
+    assert len(coll.items) == len(NAMES)
