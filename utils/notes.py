@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import logging
 from pathlib import Path
@@ -67,6 +68,66 @@ def cleanup_deleted_files():
             
     except Exception as e:
         logger.exception(f"Error during cleanup: {e}")
+
+
+SHEET_SOURCE = "sheet:vancouver_food"
+# normalized sheet header -> row key
+SHEET_FIELDS = {
+    "area": "area",
+    "name": "name",
+    "region": "region",
+    "cuisine": "cuisine",
+    "price": "price",
+    "link": "url",
+    "notes": "notes",
+}
+
+
+def sheet_rows(csv_text: str) -> list[dict[str, str]]:
+    """Parse the food sheet CSV into rows keyed by SHEET_FIELDS values. Rows with no name are dropped."""
+    try:
+        df = pd.read_csv(io.StringIO(csv_text.lstrip("﻿")), dtype=str, keep_default_na=False)
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+        raise ValueError(f"not a CSV: {e}") from e
+
+    columns = {}
+    for col in df.columns:
+        key = SHEET_FIELDS.get(col.strip().lower().rstrip(":").strip())
+        if key:
+            columns[col] = key
+    if "name" not in columns.values():
+        raise ValueError(f"no name column in {list(df.columns)}")
+
+    rows = []
+    for _, record in df.iterrows():
+        row = {key: "" for key in SHEET_FIELDS.values()}
+        for col, key in columns.items():
+            row[key] = record[col].strip()
+        if row["name"]:
+            rows.append(row)
+    return rows
+
+
+def short_maps_url(url: str) -> str:
+    """Drop the long /data= tail and query string; the place path and coordinates still open the place."""
+    return url.split("/data=", 1)[0].split("?", 1)[0]
+
+
+def format_sheet_row(row: dict[str, str]) -> str:
+    """One place as a sentence, e.g. 'Kintaro: Japanese Noodles in Vancouver, price $. map: <url>'."""
+    text = row["name"]
+    description = " ".join(part for part in (row["region"], row["cuisine"]) if part)
+    if description:
+        text += f": {description}"
+    if row["notes"]:
+        text += f" ({row['notes']})"
+    if row["area"]:
+        text += f" in {row['area']}"
+    if row["price"]:
+        text += f", price {row['price']}"
+    if row["url"]:
+        text += f". map: {short_maps_url(row['url'])}"
+    return text
 
 
 def load_personal_notes():
