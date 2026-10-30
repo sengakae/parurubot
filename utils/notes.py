@@ -5,7 +5,9 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+import requests
 
+import config
 from utils.chroma_client import collection
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,8 @@ def cleanup_deleted_files():
         deleted_sources = set()
         
         for doc_id, metadata in zip(results["ids"], results["metadatas"]):
+            if metadata.get("type") == "sheet":
+                continue  # synced from a Google Sheet, not a file in notes/
             source = metadata.get("source", "")
             if source and source not in current_files:
                 chunks_to_remove.append(doc_id)
@@ -128,6 +132,66 @@ def format_sheet_row(row: dict[str, str]) -> str:
     if row["url"]:
         text += f". map: {short_maps_url(row['url'])}"
     return text
+
+
+def sync_food_sheet(url: str | None = None) -> None:
+    """Reload the food sheet into the vector DB if it changed. Blocking; any failure keeps the old chunks."""
+    if url is None:
+        url = getattr(config, "VANCOUVER_FOOD_SHEET_CSV_URL", "")
+    if not url:
+        logger.info("VANCOUVER_FOOD_SHEET_CSV_URL not set, skipping food sheet sync")
+        return
+
+    try:
+        response = requests.get(url, timeout=30)
+    except requests.RequestException:
+        logger.exception("Food sheet download failed, keeping existing data")
+        return
+    if response.status_code != 200:
+        logger.warning("Food sheet download returned %s, keeping existing data", response.status_code)
+        return
+
+    try:
+        # Google omits the charset sometimes, and requests then guesses latin-1; decode ourselves
+        rows = sheet_rows(response.content.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        logger.exception("Food sheet isn't a usable CSV, keeping existing data")
+        return
+    if not rows:
+        logger.warning("Food sheet has no named rows, keeping existing data")
+        return
+
+    try:
+        fhash = hashlib.md5(response.content).hexdigest()
+        unchanged = collection.get(
+            where={"$and": [{"source": {"$eq": SHEET_SOURCE}}, {"file_hash": {"$eq": fhash}}]},
+            limit=1,
+        )
+        if unchanged["ids"]:
+            logger.info("Food sheet unchanged (%s rows)", len(rows))
+            return
+
+        collection.delete(where={"source": {"$eq": SHEET_SOURCE}})
+        collection.upsert(
+            documents=[format_sheet_row(row) for row in rows],
+            ids=[f"vancouver_food_sheet_{i}" for i in range(len(rows))],
+            metadatas=[
+                {
+                    "source": SHEET_SOURCE,
+                    "type": "sheet",
+                    "file_hash": fhash,
+                    "chunk": i,
+                    "area": row["area"].lower(),
+                    "region": row["region"].lower(),
+                    "cuisine": row["cuisine"].lower(),
+                    "price": row["price"].lower(),
+                }
+                for i, row in enumerate(rows)
+            ],
+        )
+        logger.info("Loaded food sheet (%s rows → %s chunks)", len(rows), len(rows))
+    except Exception:
+        logger.exception("Food sheet sync failed")
 
 
 def load_personal_notes():
