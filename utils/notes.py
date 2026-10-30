@@ -135,7 +135,17 @@ def format_sheet_row(row: dict[str, str]) -> str:
 
 
 def sync_food_sheet(url: str | None = None) -> None:
-    """Reload the food sheet into the vector DB if it changed. Blocking; any failure keeps the old chunks."""
+    """Reload the food sheet into the vector DB if it changed. Blocking; any failure keeps the old chunks.
+
+    Never raises: an escaping exception would end the daily tasks.loop until the bot restarts.
+    """
+    try:
+        _sync_food_sheet(url)
+    except Exception:
+        logger.exception("Food sheet sync failed, keeping existing data")
+
+
+def _sync_food_sheet(url: str | None) -> None:
     if url is None:
         url = getattr(config, "VANCOUVER_FOOD_SHEET_CSV_URL", "")
     if not url:
@@ -161,37 +171,40 @@ def sync_food_sheet(url: str | None = None) -> None:
         logger.warning("Food sheet has no named rows, keeping existing data")
         return
 
-    try:
-        fhash = hashlib.md5(response.content).hexdigest()
-        unchanged = collection.get(
-            where={"$and": [{"source": {"$eq": SHEET_SOURCE}}, {"file_hash": {"$eq": fhash}}]},
-            limit=1,
-        )
-        if unchanged["ids"]:
-            logger.info("Food sheet unchanged (%s rows)", len(rows))
-            return
+    fhash = hashlib.md5(response.content).hexdigest()
+    unchanged = collection.get(
+        where={"$and": [{"source": {"$eq": SHEET_SOURCE}}, {"file_hash": {"$eq": fhash}}]},
+        limit=1,
+    )
+    if unchanged["ids"]:
+        logger.info("Food sheet unchanged (%s rows)", len(rows))
+        return
 
-        collection.delete(where={"source": {"$eq": SHEET_SOURCE}})
-        collection.upsert(
-            documents=[format_sheet_row(row) for row in rows],
-            ids=[f"vancouver_food_sheet_{i}" for i in range(len(rows))],
-            metadatas=[
-                {
-                    "source": SHEET_SOURCE,
-                    "type": "sheet",
-                    "file_hash": fhash,
-                    "chunk": i,
-                    "area": row["area"].lower(),
-                    "region": row["region"].lower(),
-                    "cuisine": row["cuisine"].lower(),
-                    "price": row["price"].lower(),
-                }
-                for i, row in enumerate(rows)
-            ],
-        )
-        logger.info("Loaded food sheet (%s rows → %s chunks)", len(rows), len(rows))
-    except Exception:
-        logger.exception("Food sheet sync failed")
+    # upsert before deleting leftovers, so searches never see an empty sheet and a failed
+    # upsert leaves the old rows in place
+    old_ids = set(collection.get(where={"source": {"$eq": SHEET_SOURCE}})["ids"])
+    new_ids = [f"vancouver_food_sheet_{i}" for i in range(len(rows))]
+    collection.upsert(
+        documents=[format_sheet_row(row) for row in rows],
+        ids=new_ids,
+        metadatas=[
+            {
+                "source": SHEET_SOURCE,
+                "type": "sheet",
+                "file_hash": fhash,
+                "chunk": i,
+                "area": row["area"].lower(),
+                "region": row["region"].lower(),
+                "cuisine": row["cuisine"].lower(),
+                "price": row["price"].lower(),
+            }
+            for i, row in enumerate(rows)
+        ],
+    )
+    stale_ids = old_ids - set(new_ids)
+    if stale_ids:
+        collection.delete(ids=list(stale_ids))
+    logger.info("Loaded food sheet (%s rows, removed %s stale)", len(rows), len(stale_ids))
 
 
 def load_personal_notes():

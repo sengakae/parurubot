@@ -235,3 +235,23 @@ def test_cleanup_skips_sheet_chunks(monkeypatch, coll, tmp_path):
     monkeypatch.chdir(tmp_path)
     notes.cleanup_deleted_files()
     assert list(coll.items) == ["vancouver_food_sheet_0"]
+
+
+def test_sync_keeps_old_chunks_when_upsert_fails(monkeypatch, coll):
+    sync(monkeypatch, content=csv_bytes("Kintaro", "Danbo"))
+    before = dict(coll.items)
+
+    def broken_upsert(**kwargs):
+        raise RuntimeError("embedding failed")
+
+    monkeypatch.setattr(coll, "upsert", broken_upsert)
+    sync(monkeypatch, content=csv_bytes("Marutama"))
+    assert coll.items == before
+
+
+def test_sync_never_raises_on_unexpected_error(monkeypatch, coll):
+    # an exception escaping sync would end the daily tasks.loop until restart
+    sync(monkeypatch, content=csv_bytes("Kintaro"))
+    before = dict(coll.items)
+    sync(monkeypatch, exc=RuntimeError("surprise"))
+    assert coll.items == before
