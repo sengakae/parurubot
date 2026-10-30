@@ -9,7 +9,6 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-import config
 from utils.chroma_client import collection
 
 logger = logging.getLogger(__name__)
@@ -199,69 +198,94 @@ def render_row(row: dict[str, str], template: dict) -> str:
     return " ".join("".join(parts).split())
 
 
-def sync_food_sheet(url: str | None = None) -> None:
-    """Reload the food sheet into the vector DB if it changed. Blocking; any failure keeps the old chunks.
+def sheet_source(name: str) -> str:
+    return f"sheet:{name}"
 
-    Never raises: an escaping exception would end the daily tasks.loop until the bot restarts.
+
+def sync_all_sheets(folder: Path = TEMPLATES_FOLDER) -> None:
+    """Sync every template in folder, then drop entries of sheets whose template file is gone.
+
+    Blocking. Never raises: an escaping exception would end the daily tasks.loop until the bot restarts.
     """
     try:
-        _sync_food_sheet(url)
+        if not folder.is_dir():
+            logger.warning("Sheet templates folder %s not found, skipping sheet sync", folder)
+            return
+        templates = load_templates(folder)
+        for name, template in templates.items():
+            if template is not None:
+                sync_sheet(name, template)
+
+        # invalid-but-present templates count as present, so their old entries are kept
+        present = {sheet_source(name) for name in templates}
+        sheets = collection.get(where={"type": {"$eq": "sheet"}})
+        removed = [
+            doc_id
+            for doc_id, metadata in zip(sheets["ids"], sheets["metadatas"])
+            if metadata.get("source") not in present
+        ]
+        if removed:
+            collection.delete(ids=removed)
+            logger.info("Removed %s entries of deleted sheet templates", len(removed))
     except Exception:
-        logger.exception("Food sheet sync failed, keeping existing data")
+        logger.exception("Sheet sync failed")
 
 
-def _sync_food_sheet(url: str | None) -> None:
-    if url is None:
-        url = getattr(config, "VANCOUVER_FOOD_SHEET_CSV_URL", "")
-    if not url:
-        logger.info("VANCOUVER_FOOD_SHEET_CSV_URL not set, skipping food sheet sync")
-        return
+def sync_sheet(name: str, template: dict) -> None:
+    """Reload one sheet into the vector DB if it changed. Blocking; any failure keeps the old entries.
 
+    Never raises, so one sheet can't stop the others or the daily loop.
+    """
     try:
-        response = requests.get(url, timeout=30)
+        _sync_sheet(name, template)
+    except Exception:
+        logger.exception("Sheet %s sync failed, keeping existing data", name)
+
+
+def _sync_sheet(name: str, template: dict) -> None:
+    source = sheet_source(name)
+    try:
+        response = requests.get(template["url"], timeout=30)
     except requests.RequestException:
-        logger.exception("Food sheet download failed, keeping existing data")
+        logger.exception("Sheet %s download failed, keeping existing data", name)
         return
     if response.status_code != 200:
-        logger.warning("Food sheet download returned %s, keeping existing data", response.status_code)
+        logger.warning("Sheet %s download returned %s, keeping existing data", name, response.status_code)
         return
 
     try:
         # Google omits the charset sometimes, and requests then guesses latin-1; decode ourselves
-        rows = sheet_rows(response.content.decode("utf-8-sig"))
+        rows = sheet_rows(response.content.decode("utf-8-sig"), template)
     except (UnicodeDecodeError, ValueError):
-        logger.exception("Food sheet isn't a usable CSV, keeping existing data")
+        logger.exception("Sheet %s isn't a usable CSV, keeping existing data", name)
         return
     if not rows:
-        logger.warning("Food sheet has no named rows, keeping existing data")
+        logger.warning("Sheet %s has no usable rows, keeping existing data", name)
         return
 
     fhash = hashlib.md5(response.content).hexdigest()
     unchanged = collection.get(
-        where={"$and": [{"source": {"$eq": SHEET_SOURCE}}, {"file_hash": {"$eq": fhash}}]},
+        where={"$and": [{"source": {"$eq": source}}, {"file_hash": {"$eq": fhash}}]},
         limit=1,
     )
     if unchanged["ids"]:
-        logger.info("Food sheet unchanged (%s rows)", len(rows))
+        logger.info("Sheet %s unchanged (%s rows)", name, len(rows))
         return
 
     # upsert before deleting leftovers, so searches never see an empty sheet and a failed
     # upsert leaves the old rows in place
-    old_ids = set(collection.get(where={"source": {"$eq": SHEET_SOURCE}})["ids"])
-    new_ids = [f"vancouver_food_sheet_{i}" for i in range(len(rows))]
+    old_ids = set(collection.get(where={"source": {"$eq": source}})["ids"])
+    new_ids = [f"{name}_sheet_{i}" for i in range(len(rows))]
     collection.upsert(
-        documents=[format_sheet_row(row) for row in rows],
+        documents=[render_row(row, template) for row in rows],
         ids=new_ids,
         metadatas=[
             {
-                "source": SHEET_SOURCE,
+                "source": source,
                 "type": "sheet",
                 "file_hash": fhash,
                 "chunk": i,
-                "area": row["area"].lower(),
-                "region": row["region"].lower(),
-                "cuisine": row["cuisine"].lower(),
-                "price": row["price"].lower(),
+                **{field: row[field].lower() for field in template["fields"]},
             }
             for i, row in enumerate(rows)
         ],
@@ -269,7 +293,7 @@ def _sync_food_sheet(url: str | None) -> None:
     stale_ids = old_ids - set(new_ids)
     if stale_ids:
         collection.delete(ids=list(stale_ids))
-    logger.info("Loaded food sheet (%s rows, removed %s stale)", len(rows), len(stale_ids))
+    logger.info("Loaded sheet %s (%s rows, removed %s stale)", name, len(rows), len(stale_ids))
 
 
 def load_personal_notes():

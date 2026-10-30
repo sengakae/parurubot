@@ -76,3 +76,80 @@ def test_load_templates_ignores_non_json(tmp_path):
 
 def test_load_templates_missing_folder(tmp_path):
     assert notes.load_templates(tmp_path / "nope") == {}
+
+
+# --- sync_all_sheets ---
+
+from tests.test_food_sheet import FakeCollection, FakeResponse  # noqa: E402
+
+FILMS = {**TOY, "url": "https://example.com/films.csv",
+         "columns": {"film": "title", "director": "author", "year": "year"}}
+
+
+@pytest.fixture
+def coll(monkeypatch):
+    c = FakeCollection()
+    monkeypatch.setattr(notes, "collection", c)
+    return c
+
+
+@pytest.fixture
+def get_calls(monkeypatch):
+    bodies = {TOY["url"]: b"Title,Author,Year\nDune,Herbert,1965\n",
+              FILMS["url"]: b"Film,Director,Year\nAlien,Scott,1979\n"}
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        return FakeResponse(bodies[url], 200, "utf-8")
+
+    monkeypatch.setattr(notes.requests, "get", get)
+    return calls
+
+
+def test_sync_all_syncs_each_template(tmp_path, coll, get_calls):
+    write(tmp_path, "books.json", TOY)
+    write(tmp_path, "films.json", FILMS)
+    notes.sync_all_sheets(tmp_path)
+    assert coll.items["books_sheet_0"][1]["source"] == "sheet:books"
+    assert coll.items["films_sheet_0"][1]["source"] == "sheet:films"
+    assert coll.items["films_sheet_0"][0] == "Alien by Scott (1979)"
+    assert coll.items["books_sheet_0"][1]["author"] == "herbert"
+
+
+def test_sync_all_removes_deleted_template(tmp_path, coll, get_calls):
+    coll.items["old_sheet_0"] = ("x", {"source": "sheet:old", "type": "sheet"})
+    coll.items["ben_0"] = ("y", {"source": "misc/ben.txt", "type": "txt"})
+    write(tmp_path, "books.json", TOY)
+    notes.sync_all_sheets(tmp_path)
+    assert "old_sheet_0" not in coll.items
+    assert "ben_0" in coll.items
+
+
+def test_sync_all_keeps_entries_of_invalid_template(tmp_path, coll, get_calls):
+    coll.items["broken_sheet_0"] = ("x", {"source": "sheet:broken", "type": "sheet"})
+    write(tmp_path, "broken.json", "{")
+    notes.sync_all_sheets(tmp_path)
+    assert "broken_sheet_0" in coll.items
+
+
+def test_sync_all_bad_template_does_not_stop_others(tmp_path, coll, get_calls):
+    write(tmp_path, "bad.json", "{")
+    write(tmp_path, "books.json", TOY)
+    notes.sync_all_sheets(tmp_path)
+    assert "books_sheet_0" in coll.items
+
+
+def test_sync_all_missing_folder_deletes_nothing(tmp_path, coll, get_calls):
+    coll.items["books_sheet_0"] = ("x", {"source": "sheet:books", "type": "sheet"})
+    notes.sync_all_sheets(tmp_path / "nope")
+    assert "books_sheet_0" in coll.items
+    assert get_calls == []
+
+
+def test_sync_all_never_raises(tmp_path, monkeypatch, coll):
+    def boom(folder):
+        raise RuntimeError("surprise")
+
+    monkeypatch.setattr(notes, "load_templates", boom)
+    notes.sync_all_sheets(tmp_path)

@@ -93,14 +93,14 @@ def test_render_row_real_link_fits_search_preview():
     assert len(notes.render_row(long_name, FOOD)) < 400
 
 
-# --- sync_food_sheet ---
+# --- sync_sheet ---
 
 import hashlib
-import types
 
 import requests
 
 URL = "https://docs.google.com/spreadsheets/d/x/export?format=csv"
+FOOD_WITH_URL = {**FOOD, "url": URL}
 
 
 def csv_bytes(*names):
@@ -172,17 +172,8 @@ def coll(monkeypatch):
 def sync(monkeypatch, **kwargs):
     get = fake_get(**kwargs)
     monkeypatch.setattr(notes.requests, "get", get)
-    notes.sync_food_sheet(URL)
+    notes.sync_sheet("vancouver_food", FOOD_WITH_URL)
     return get
-
-
-def test_sync_skips_when_url_unset(monkeypatch, coll):
-    monkeypatch.setattr(notes, "config", types.SimpleNamespace())
-    get = fake_get(content=csv_bytes("Kintaro"))
-    monkeypatch.setattr(notes.requests, "get", get)
-    notes.sync_food_sheet()
-    assert get.calls == []
-    assert coll.items == {}
 
 
 def test_sync_loads_one_chunk_per_row(monkeypatch, coll):
@@ -190,7 +181,7 @@ def test_sync_loads_one_chunk_per_row(monkeypatch, coll):
     get = sync(monkeypatch, content=content)
     assert sorted(coll.items) == ["vancouver_food_sheet_0", "vancouver_food_sheet_1"]
     doc, meta = coll.items["vancouver_food_sheet_0"]
-    assert doc == notes.format_sheet_row(notes.sheet_rows(content.decode())[0])
+    assert doc == notes.render_row(notes.sheet_rows(content.decode(), FOOD)[0], FOOD)
     assert meta == {"source": "sheet:vancouver_food", "type": "sheet",
                     "file_hash": hashlib.md5(content).hexdigest(), "chunk": 0,
                     "area": "vancouver", "region": "japanese", "cuisine": "noodles", "price": "$"}
@@ -249,7 +240,7 @@ def test_sync_keeps_old_chunks_when_sheet_has_no_rows(monkeypatch, coll):
 
 
 def test_cleanup_skips_sheet_chunks(monkeypatch, coll, tmp_path):
-    coll.items["vancouver_food_sheet_0"] = ("x", {"source": notes.SHEET_SOURCE, "type": "sheet"})
+    coll.items["vancouver_food_sheet_0"] = ("x", {"source": "sheet:vancouver_food", "type": "sheet"})
     coll.items["gone_0"] = ("y", {"source": "gone.txt", "type": "txt"})
     (tmp_path / "notes").mkdir()
     monkeypatch.chdir(tmp_path)
