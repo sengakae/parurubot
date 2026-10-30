@@ -76,6 +76,9 @@ def cleanup_deleted_files():
 
 
 TEMPLATES_FOLDER = Path("templates")
+# rows embedded per upsert: measured peaks on the real 198-row sheet were 683 MB for one
+# upsert of all rows, 337 MB at 4, 310 MB at 1 (model load alone ~274 MB)
+UPSERT_BATCH_SIZE = 4
 TEMPLATE_KEYS = ("url", "columns", "required", "row", "fields")
 # metadata keys sync_sheet sets itself; a template field with one of these names would overwrite it
 RESERVED_FIELDS = {"source", "type", "file_hash", "template_hash", "chunk"}
@@ -292,15 +295,11 @@ def _sync_sheet(name: str, template: dict) -> None:
     fhash = hashlib.md5(response.content).hexdigest()
     # a template edit (wording, fields) must reapply even when the sheet itself didn't change
     thash = hashlib.md5(json.dumps(template, sort_keys=True).encode()).hexdigest()
-    unchanged = collection.get(
-        where={"$and": [
-            {"source": {"$eq": source}},
-            {"file_hash": {"$eq": fhash}},
-            {"template_hash": {"$eq": thash}},
-        ]},
-        limit=1,
-    )
-    if unchanged["ids"]:
+    # rows are upserted in order in batches, so the last row having both hashes means the
+    # previous sync finished; any other row could be from a sync that died partway
+    last = collection.get(ids=[f"{name}_sheet_{len(rows) - 1}"])
+    last_meta = last["metadatas"][0] if last["ids"] else {}
+    if last_meta.get("file_hash") == fhash and last_meta.get("template_hash") == thash:
         logger.info("Sheet %s unchanged (%s rows)", name, len(rows))
         return
 
@@ -308,21 +307,22 @@ def _sync_sheet(name: str, template: dict) -> None:
     # upsert leaves the old rows in place
     old_ids = set(collection.get(where={"source": {"$eq": source}})["ids"])
     new_ids = [f"{name}_sheet_{i}" for i in range(len(rows))]
-    collection.upsert(
-        documents=[render_row(row, template) for row in rows],
-        ids=new_ids,
-        metadatas=[
-            {
-                "source": source,
-                "type": "sheet",
-                "file_hash": fhash,
-                "template_hash": thash,
-                "chunk": i,
-                **{field: row[field].lower() for field in template["fields"]},
-            }
-            for i, row in enumerate(rows)
-        ],
-    )
+    documents = [render_row(row, template) for row in rows]
+    metadatas = [
+        {
+            "source": source,
+            "type": "sheet",
+            "file_hash": fhash,
+            "template_hash": thash,
+            "chunk": i,
+            **{field: row[field].lower() for field in template["fields"]},
+        }
+        for i, row in enumerate(rows)
+    ]
+    # embedding runs per upsert call; small batches keep the e2-micro's peak memory low
+    for start in range(0, len(rows), UPSERT_BATCH_SIZE):
+        end = start + UPSERT_BATCH_SIZE
+        collection.upsert(documents=documents[start:end], ids=new_ids[start:end], metadatas=metadatas[start:end])
     stale_ids = old_ids - set(new_ids)
     if stale_ids:
         collection.delete(ids=list(stale_ids))
