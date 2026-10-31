@@ -221,6 +221,9 @@ async def handle_ai_chat(message):
         history_has_images = include_history_images and any(
             msg["images"] for msg in history_messages
         )
+        # Recorded after reading history: this message is the prompt, not its own context.
+        # Without it, a follow-up only sees paruru's last answer, not the question.
+        add_message_to_history(channel_id, speaker_label(message.author), message.content)
 
         relevant_notes = await asyncio.to_thread(
             search_personal_notes, cleaned_content, n_results=2
