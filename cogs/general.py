@@ -17,6 +17,7 @@ class GeneralCog(commands.Cog):
         self.bot = bot
 
     @commands.command(name="purge", help="Purges the last [number] lines (max: 100)")
+    @commands.has_permissions(administrator=True)
     async def purge(self, ctx, number: int = 10):
         lines = min(int(number), 100)
         await ctx.channel.purge(limit=lines)
@@ -31,7 +32,7 @@ class GeneralCog(commands.Cog):
         logger.info("Channel history cleared.")
         await ctx.send(f"Cleared stored history for this channel ({ctx.channel.name}).")
 
-    @commands.command(name="summary", help="Generate AI summary of last 500 messages")
+    @commands.command(name="summary", help="Generate AI summary of the last [number] messages (default 100, max 500) or a duration like 2h/1d")
     async def summary(self, ctx, arg: str = None):
         try:
             if not ctx.channel.permissions_for(ctx.author).read_message_history:
@@ -75,7 +76,8 @@ class GeneralCog(commands.Cog):
                 await ctx.send("No messages found to summarize")
                 return
 
-            summary_text = summarize_channel(messages)
+            # summarize_channel calls Gemini synchronously, so keep it off the event loop
+            summary_text = await asyncio.to_thread(summarize_channel, messages)
             # the header can push a full-length summary past Discord's 2000-character limit
             for chunk in split_message(
                 f"**Channel Summary ({len(messages)} messages analyzed):**\n{summary_text}"

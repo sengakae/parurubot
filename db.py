@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import random
 import secrets
 
 import asyncpg
@@ -125,10 +124,9 @@ async def get_all_keys():
 
 async def get_random_quote():
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT key, value FROM quotes")
-        if not rows:
-            return None
-        return random.choice(rows)["value"]
+        return await conn.fetchrow(
+            "SELECT key, value FROM quotes ORDER BY random() LIMIT 1"
+        )
 
 
 async def get_quote_by_key(key):

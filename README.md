@@ -8,7 +8,7 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 - **Natural Conversations**: Chat naturally with "paruru, " followed by your message
 - **Context Awareness**: Remembers the last 100 messages in each channel (including its own replies and messages addressed to it) for contextual responses; kept in memory, so it resets on restart or `!clear`
 - **Personal Notes Integration**: Searches through your personal notes to provide relevant information
-- **Smart Response Types**: Automatically detects when to provide current information vs. conversational responses
+- **Tool Use**: Decides on her own when to search the web, read a link, search notes, check the weather, set/list/cancel reminders, or recap the channel
 - **Image Analysis**: Attach images to your messages for AI-powered analysis and description
 - **YouTube Integration**: Share YouTube videos for AI discussion and analysis
 - **Link Reading**: Ask about a link ("paruru, what is this article about? <url>") and she opens the page and answers from what it actually says; if the page can't be opened (paywall, login, blocked sites like x.com), she falls back to Discord's link preview and says that's all she saw; with no preview either, she says she couldn't open it instead of guessing
@@ -16,7 +16,8 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 ### Personal Notes Management
 - **Vector Database**: Automatically loads and indexes `.txt`, `.csv`, and `.json` files from the `notes/` folder
 - **Semantic Search**: Finds relevant information from your notes using AI-powered search
-- **Multiple Formats**: Supports both text files and CSV data with automatic chunking and indexing
+- **Multiple Formats**: Supports text, CSV, and JSON files with automatic chunking and indexing
+- **Google Sheets**: Each template in `templates/` points at a shared Google Sheet; sheets are synced into the vector database on startup and daily
 
 ### Utility Commands
 - **Quote Management**: Save, retrieve, and manage quotes with keywords
@@ -32,7 +33,7 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 ## Quick Start
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.10+
 - PostgreSQL database
 - Discord Bot Token
 - Google Gemini API Key
@@ -88,11 +89,18 @@ discord-bot/
 │   ├── tasklist.py       # Interactive checklist (persistent)
 │   ├── signup.py         # Signup sheets (persistent)
 │   ├── remindme.py       # Scheduled reminders (persistent)
+│   ├── memories.py       # Memory learning and !aboutme
 │   └── update.py         # Owner-only git pull + service restart
 ├── utils/                  # Utility modules
 │   ├── ai.py             # AI chat and summarization
-│   ├── notes.py          # Personal notes management
+│   ├── tools.py          # Tools the AI chat can call
+│   ├── notes.py          # Personal notes and Google Sheet sync
+│   ├── memory_*.py       # Memory queue, learner prompt, and rules
+│   ├── reminders.py      # Reminder time parsing
 │   └── chroma_client.py  # Vector database client
+├── templates/              # Google Sheet templates (synced daily)
+├── scripts/                # Maintenance scripts
+├── tests/                  # pytest suite
 ├── notes/                  # Personal notes folder (auto-indexed)
 ├── chroma_db/             # Vector database storage
 ├── main.py                # Main bot entry point
@@ -119,10 +127,11 @@ discord-bot/
 - **`!purge [number]`** - Delete the last N messages (max 100) [Requires admin permissions]
 - **`!weather [city]`** - Get weather information for a city
 - **`!gs [stats]`** - Calculate Epic Seven gear score
-  - **Percentage stats**: `[num]atk`, `[num]def`, `[num]hp`, `[num]eff`, `[num]er`
+  - **Percentage stats** (atk%, def%, hp%, eff, er): bare number, e.g. `8`
   - **Critical stats**: `[num]cc`, `[num]cd`
   - **Speed**: `[num]s`
   - **Flat stats**: `[num]atk`, `[num]def`, `[num]hp`
+  - Example: `!gs 8 6 4cc 16cd 4s 30atk`
 
 ### History & Analysis
 - **`!summary [number|duration]`** - Generate AI summary of last N messages or messages from last X hours/days (e.g., `!summary 50`, `!summary 2h`, `!summary 1d`)
@@ -195,13 +204,13 @@ discord-bot/
 ## Configuration
 
 ### Personal Notes
-- Place `.txt` and `.csv` files in the `notes/` folder
+- Place `.txt`, `.csv`, and `.json` files in the `notes/` folder
 - Files are automatically indexed and searchable by the AI
-- Supports both text content and structured CSV data
+- Supports both text content and structured CSV/JSON data
 
 ### System Prompts
 - Customize the bot's personality and behavior in `config.py`
-- Adjust character limits, history size, and web search triggers
+- Adjust the character limit (`CHAR_LIMIT`) and history size (`MAX_HISTORY`)
 - Modify the system prompt for different AI behaviors
 
 ## Development
@@ -232,10 +241,10 @@ async def setup(bot):
 ## Dependencies
 
 - **discord.py** - Discord bot framework
-- **google-generativeai** - Google Gemini AI integration
+- **google-genai** - Google Gemini AI integration
 - **chromadb** - Vector database for notes
 - **pandas** - CSV data processing
-- **requests** - HTTP requests for weather API
+- **requests** - HTTP requests for the weather API and Google Sheet sync
 - **python-dotenv** - Environment variable management
 - **asyncpg** - PostgreSQL async driver (quotes, reminders, task lists, signup sheets)
 - **sentence-transformers** - Text embedding models
