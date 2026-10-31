@@ -6,9 +6,8 @@ from datetime import datetime, timedelta, timezone
 from discord.ext import commands
 
 import history
-from config import CHAR_LIMIT
 from utils.ai import generate_quiz_question, summarize_channel
-from utils.messages import fetch_channel_messages
+from utils.messages import fetch_channel_messages, split_message
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +75,12 @@ class GeneralCog(commands.Cog):
                 await ctx.send("No messages found to summarize")
                 return
 
-            header = f"**Channel Summary ({len(messages)} messages analyzed):**\n"
-            # the header shares Discord's 2000-character message limit with the summary
-            summary_text = summarize_channel(messages, CHAR_LIMIT - len(header))
-            await ctx.send(header + summary_text)
+            summary_text = summarize_channel(messages)
+            # the header can push a full-length summary past Discord's 2000-character limit
+            for chunk in split_message(
+                f"**Channel Summary ({len(messages)} messages analyzed):**\n{summary_text}"
+            ):
+                await ctx.send(chunk)
 
         except Exception as e:
             logger.exception(f"Error generating summary: {e}")
