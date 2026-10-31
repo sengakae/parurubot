@@ -85,7 +85,9 @@ def test_final_embed_from_flag():
     e = up.final_embed_from_flag(FULL_FLAG, "c0765abdef")
     assert e.title == "Update complete" and e.colour.value == 0x57F287
     assert e.description == "\n".join(f"✓ {s}" for s in STEPS)
-    assert [f.name for f in e.fields] == ["Version", "Dependencies", "Changes"]
+    # Changes only shows while the update runs; FULL_FLAG still carries it, as flags
+    # written by the previous version do
+    assert [f.name for f in e.fields] == ["Version", "Dependencies"]
     assert e.fields[0].value == "`7d306dd` -> `c0765ab`"
     assert e.footer.text == "Started by sengakae"
 

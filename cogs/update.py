@@ -110,7 +110,8 @@ def build_update_embed(
 
 def final_embed_from_flag(data, new_hash):
     """The "Update complete" embed after the restart, from the flag the update wrote.
-    Flags from before the embed only have the steps, so every other key is optional."""
+    Flags from before the embed only have the steps, so every other key is optional.
+    The diffstat is left out: it only matters while the update runs."""
     steps = data.get("steps", STEPS)
     return build_update_embed(
         steps,
@@ -119,7 +120,6 @@ def final_embed_from_flag(data, new_hash):
         old_hash=data.get("old_hash"),
         new_hash=new_hash,
         deps=data.get("deps"),
-        changes=data.get("changes"),
         started_by=data.get("started_by"),
     )
 
@@ -287,7 +287,6 @@ class Update(commands.Cog):
                     "message_id": status_msg.id,
                     "steps": update_steps,
                     "old_hash": old_hash,
-                    "changes": stat_output,
                     "deps": deps,
                     "started_by": started_by,
                 },
