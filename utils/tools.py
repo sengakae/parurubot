@@ -16,7 +16,7 @@ import discord
 import db
 from cogs.memories import send_aboutme
 from utils.ai import (MODEL, _generate_with_error_retry, extract_response_text,
-                      grounding_config, url_context_config)
+                      grounding_config, summarize_channel, url_context_config)
 from utils.links import extract_links
 from utils.memory_rules import admin_link, recall
 from utils.messages import fetch_channel_messages
@@ -27,8 +27,7 @@ from utils.weather import fetch_weather
 
 logger = logging.getLogger(__name__)
 
-MAX_RECAP_MESSAGES = 200
-MAX_RECAP_CHARS = 300
+MAX_RECAP_MESSAGES = 500  # same cap as !summary
 # How far back to look for the message that posted a link, and how long to wait
 # for Discord to attach a preview to a just-posted one.
 PREVIEW_HISTORY_LIMIT = 50
@@ -151,8 +150,9 @@ TOOL_DECLARATIONS = [
     {
         "name": "read_recent_messages",
         "description": (
-            "Read recent messages in this channel. Give either hours (messages from the "
-            "last N hours) or count (the last N messages)."
+            "Summarize recent messages in this channel (the same summary as !summary). "
+            "For time-based questions (\"today\", \"this morning\", \"since last night\") give "
+            "hours, counted back from the current time; otherwise give count (the last N messages)."
         ),
         "parameters": {
             "type": "object",
@@ -421,15 +421,14 @@ async def read_recent_messages(ctx, hours=None, count=None):
         after = datetime.now(timezone.utc) - timedelta(hours=int(hours))
         limit = MAX_RECAP_MESSAGES
     else:
-        limit = max(1, min(int(count or 50), MAX_RECAP_MESSAGES))
+        limit = max(1, min(int(count or 100), MAX_RECAP_MESSAGES))
 
     messages = await fetch_channel_messages(channel, ctx.bot.user, limit, after)
-    return {
-        "messages": [
-            f"[{m['timestamp'][:16]}] {m['author']}: {m['content'][:MAX_RECAP_CHARS]}"
-            for m in messages
-        ]
-    }
+    if not messages:
+        return {"error": "No messages found to summarize."}
+    # Same summary as !summary; it calls Gemini synchronously, so keep it off the event loop.
+    summary = await asyncio.to_thread(summarize_channel, messages)
+    return {"summary": summary, "messages_analyzed": len(messages)}
 
 
 async def recall_person(ctx, name=None):
