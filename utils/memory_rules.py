@@ -51,14 +51,12 @@ class ApplyContext:
     is_pending: Callable[[int], bool]
 
 
-def _batch_user_ids(messages) -> set[int]:
-    ids = set()
-    for m in messages:
-        ids.add(m.author_id)
-        ids.update(m.mention_ids)
-        if m.reply_to_author_id is not None:
-            ids.add(m.reply_to_author_id)
-    return ids
+def _tied_to(user_id, msg, messages) -> bool:
+    """The source message points at the user: they wrote it, it replies to or mentions
+    them, or they replied to its author. Being in the room nearby is not enough."""
+    if user_id in (msg.author_id, msg.reply_to_author_id) or user_id in msg.mention_ids:
+        return True
+    return any(m.author_id == user_id and m.reply_to_author_id == msg.author_id for m in messages)
 
 
 async def _owned_memory(guild_id, memory_id, store):
@@ -134,7 +132,7 @@ async def _apply_update_or_forget(op, msg, ctx, store) -> bool:
 
 async def _apply_link(op, msg, ctx, store) -> bool:
     name = normalize_name(op.name)
-    if name is None or op.user_id not in _batch_user_ids(ctx.messages.values()):
+    if name is None or not _tied_to(op.user_id, msg, ctx.messages.values()):
         return False
     locked_id = LOCKED_NAMES.get(name)
     if locked_id is not None and op.user_id != locked_id:
