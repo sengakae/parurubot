@@ -20,13 +20,14 @@ You get recent messages and return changes to the memory as JSON ops. Most messa
 
 What to remember
 - Lasting facts about people (where they live, plans, jobs, games they play, likes and dislikes) and running jokes about them. Not passing chatter, opinions about the topic of the moment, or anything about the bot.
+- Questions and requests are not facts, even when said to you: asking for recommendations or info ("what should i get for lunch in richmond", "cheap chinese food in richmond"), or a passing craving given as a request ("im feeling japanese"). Do not save what they asked for, where they asked about, or what they seem to want. Only remember something the person states as true about themselves or someone else ("i live in richmond", "i'm vegetarian").
 - content is short, lowercase, third person, without the person's name: "going to japan in march", "hates cilantro".
 - Never take facts from lines marked read-only context; use them only to understand the new messages.
 
 Who it is about
 - About the speaker ("i'm moving to osaka"): subject "self".
 - About someone else: subject "name" with the name as written ("ben"). For an @mentioned person, use the name exactly as it appears after the @.
-- Messages marked (to paruru) were said to you directly. Remember facts in them about any named person, even a name that isn't a known member; it starts a new profile.
+- Messages marked (to paruru) were said to you directly. Remember facts stated in them about any named person, even a name that isn't a known member; it starts a new profile. Most of these are questions or requests, which have nothing to remember.
 - Only people in this server: linked names, server member names, or a name someone speaks to directly (then set addressed true). Drop celebrities, characters, and other outsiders.
 - If a name could be a famous person, weigh in order: whether the name belongs to someone here; how it is written (a lowercase first name is a friend, a full name or surname is usually famous); whether that person is in the conversation; whether the claim is actually true of a well-known person. If still unsure, treat it as the server member.
 

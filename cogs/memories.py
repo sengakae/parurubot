@@ -31,6 +31,21 @@ def is_game_score(text: str) -> bool:
     return len(_BLOCK_EMOJI_RE.findall(text)) >= MIN_SCORE_BLOCKS
 
 
+def describe_op(op) -> str:
+    """One proposed learner op as a log-friendly line, e.g. "add self 'likes ramen' (msg 123)"."""
+    if op.op == "add":
+        who = f"name {op.name}" if op.subject == "name" else "self"
+        what = f"{who} '{op.content}'"
+    elif op.op == "update":
+        what = f"#{op.memory_id} '{op.content}'"
+    elif op.op == "forget":
+        what = f"#{op.memory_id}"
+    else:
+        what = f"{op.name} -> {op.user_id}"
+    joke = " joke" if op.joke and op.op in ("add", "update") else ""
+    return f"{op.op} {what}{joke} (msg {op.message_id})"
+
+
 def is_direct(text: str) -> bool:
     return text.lstrip().casefold().startswith("paruru,")
 
@@ -374,6 +389,8 @@ class MemoriesCog(commands.Cog):
                 member_names=member_names,
                 is_pending=self.queue.is_pending,
             )
+            for op in ops:
+                logger.info("Memories: proposed %s", describe_op(op))
             changed_ids = await apply_ops(ops, apply_ctx, self.store)
             self.queue.mark_processed(channel_id, batch[-1].id)
             logger.info(

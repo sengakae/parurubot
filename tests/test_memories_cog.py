@@ -217,3 +217,18 @@ def test_daily_game_scores_not_queued():
 def test_few_block_emojis_still_queued():
     assert should_queue(discord_msg("green means go 🟩")) is True
     assert should_queue(discord_msg("🟩🟩 two is fine")) is True
+
+
+def test_describe_op_names_what_each_op_does():
+    describe = memories_mod.describe_op
+    assert describe(Op(op="add", message_id=5, subject="self", content="likes japanese food")) == (
+        "add self 'likes japanese food' (msg 5)"
+    )
+    assert describe(Op(op="add", message_id=5, subject="name", name="ben", content="is a goat", joke=True)) == (
+        "add name ben 'is a goat' joke (msg 5)"
+    )
+    assert describe(Op(op="update", message_id=6, memory_id=12, content="lives in osaka")) == (
+        "update #12 'lives in osaka' (msg 6)"
+    )
+    assert describe(Op(op="forget", message_id=7, memory_id=12)) == "forget #12 (msg 7)"
+    assert describe(Op(op="link", message_id=8, name="ben", user_id=111)) == "link ben -> 111 (msg 8)"

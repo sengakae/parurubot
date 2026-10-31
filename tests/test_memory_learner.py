@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from utils.memory_learner import build_learner_prompt, parse_ops
+from utils.memory_learner import LEARNER_INSTRUCTIONS, build_learner_prompt, parse_ops
 from utils.memory_queue import QueuedMessage
 
 
@@ -82,3 +82,10 @@ def test_build_prompt_marks_direct_messages():
     prompt = build_learner_prompt([], [m, qmsg(2, "lol")], [], {}, [])
     assert "[1] (to paruru) anto (100): paruru, ben is the chairman" in prompt
     assert "[2] anto (100): lol" in prompt
+
+
+def test_instructions_exclude_requests_to_paruru():
+    # "paruru, cheap chinese food in richmond" was being saved as a memory about the asker
+    text = LEARNER_INSTRUCTIONS.lower()
+    assert "questions and requests" in text
+    assert "not facts" in text
