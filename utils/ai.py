@@ -123,10 +123,10 @@ def _generate_with_error_retry(**kwargs):
     raise last_error
 
 
-def summarize_channel(messages, char_limit=CHAR_LIMIT):
+def summarize_channel(messages):
     """
     Summarize a list of Discord messages (dicts with author/content/timestamp).
-    Keeps summary under char_limit characters.
+    Keeps summary under CHAR_LIMIT characters.
     """
     if not messages:
         return "No messages to summarize."
@@ -144,7 +144,7 @@ def summarize_channel(messages, char_limit=CHAR_LIMIT):
         "- Important questions or decisions made\n"
         "- Any ongoing discussions or unresolved topics\n"
         "- General mood/tone of the conversation\n\n"
-        f"Keep the summary under {char_limit} characters and organize it as a clear, structured list.\n\n"
+        f"Keep the summary under {CHAR_LIMIT} characters and organize it as a clear, structured list.\n\n"
         f"Here's the conversation:\n\n{conversation_text}"
     )
 
@@ -156,8 +156,8 @@ def summarize_channel(messages, char_limit=CHAR_LIMIT):
         ),
     )
 
-    if len(text) > char_limit:
-        text = text[: char_limit - 3] + "..."
+    if len(text) > CHAR_LIMIT:
+        text = text[: CHAR_LIMIT - 3] + "..."
     return text
 
 
