@@ -33,7 +33,13 @@ MAX_API_RETRIES = 3
 # finds nothing (e.g. obscure handles). Retry it, then fall back to no search.
 MAX_EMPTY_RETRIES = 2
 EMPTY_RESPONSE_TEXT = "No response generated."
+BLOCKED_RESPONSE_TEXT = "can't look at that one, gemini blocked it."
 MAX_TOOL_STEPS = 5
+
+
+def _is_blocked(response) -> bool:
+    """Gemini refused the prompt itself; sending it again gets the same refusal."""
+    return bool(getattr(getattr(response, "prompt_feedback", None), "block_reason", None))
 
 
 def extract_response_text(response) -> str | None:
@@ -84,9 +90,12 @@ def _is_retryable_error(error: Exception) -> bool:
 
 def generate_content_with_retry(**kwargs) -> str:
     for attempt in range(MAX_EMPTY_RETRIES):
-        text = extract_response_text(_generate_with_error_retry(**kwargs))
+        response = _generate_with_error_retry(**kwargs)
+        text = extract_response_text(response)
         if text:
             return text
+        if _is_blocked(response):
+            return BLOCKED_RESPONSE_TEXT
         logger.warning(
             f"Empty Gemini response (attempt {attempt + 1}/{MAX_EMPTY_RETRIES})"
         )
@@ -226,6 +235,9 @@ async def chat_with_ai(
         tools=[types.Tool(function_declarations=TOOL_DECLARATIONS)],
         system_instruction=system_message,
         thinking_config=types.ThinkingConfig(include_thoughts=False),
+        # ~100 instead of ~300 tokens per second: a 30-minute video at the default
+        # resolution is ~600k tokens, so one retry blows the 1M input tokens/minute limit
+        media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW if videos else None,
     )
 
     # Same declarations (the conversation may hold earlier calls) but no new calls allowed.
@@ -272,6 +284,8 @@ async def chat_with_ai(
             continue
 
         final_text = extract_response_text(response)
+        if not final_text and _is_blocked(response):
+            final_text = BLOCKED_RESPONSE_TEXT
         if final_text or current_config is no_tools_config:
             break
         empty_responses += 1
