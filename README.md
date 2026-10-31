@@ -6,7 +6,7 @@ A feature-rich Discord bot built with Python and Discord.py, featuring AI-powere
 
 ### AI-Powered Chat
 - **Natural Conversations**: Chat naturally with "paruru, " followed by your message
-- **Context Awareness**: Remembers the last 20 messages in each channel for contextual responses
+- **Context Awareness**: Remembers the last 100 messages in each channel (including its own replies and messages addressed to it) for contextual responses; kept in memory, so it resets on restart or `!clear`
 - **Personal Notes Integration**: Searches through your personal notes to provide relevant information
 - **Smart Response Types**: Automatically detects when to provide current information vs. conversational responses
 - **Image Analysis**: Attach images to your messages for AI-powered analysis and description
@@ -187,7 +187,7 @@ discord-bot/
 - **`!update`** - Owner-only. Pulls the latest changes from git and restarts the bot service
   - Compares the commit hash before and after the pull; if nothing changed, reports "up to date" and skips the restart
   - Installs `requirements.txt` with the repository's `venv` Python only when that file changed; on GCP, the service should also launch with `venv/bin/python`. If installation fails or times out, the service is not restarted
-  - Posts a `git diff --stat` summary of changed files and line counts between the old and new commit
+  - Shows progress in an embed, with the old and new commit and a `git diff --stat` of changed files while the update runs; the final "Update complete" embed keeps the version and dependencies but drops the diffstat
   - Restarts the `parurubot.service` systemd unit via a scoped, passwordless `sudo systemctl restart` rule
   - Only usable by the Discord user ID set as `OWNER_ID` in `.env`; ignored silently for anyone else
   - Requires a sudoers rule (`/etc/sudoers.d/parurubot`) granting the bot's system user passwordless permission to restart only `parurubot.service`
