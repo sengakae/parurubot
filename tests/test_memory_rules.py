@@ -149,6 +149,22 @@ def test_link_user_must_be_in_batch():
     assert run(store.get_links(G)) == {}
 
 
+def test_link_rejected_when_message_not_tied_to_user():
+    store = FakeStore()
+    m1 = qmsg(1, author_id=CHEUNG, content="the vtubers i follow aren't part of hololive")
+    m2 = qmsg(2, author_id=ANTO, content="lets goo ben")
+    reacts = run(apply_ops([Op("link", 2, name="ben", user_id=CHEUNG)], context(m1, m2), store))
+    assert run(store.get_links(G)) == {} and reacts == []
+
+
+def test_link_accepted_when_user_answers_the_message():
+    store = FakeStore()
+    m1 = qmsg(1, author_id=ANTO, content="are you looking at countdown japan cheung")
+    m2 = qmsg(2, author_id=CHEUNG, content="yea", reply_to=ANTO)
+    run(apply_ops([Op("link", 1, name="cheung", user_id=CHEUNG)], context(m1, m2), store))
+    assert run(store.get_links(G)) == {"cheung": CHEUNG}
+
+
 def test_deleted_message_ops_dropped():
     store = FakeStore()
     existing = run(store.add_memory(G, BEN, "ben", "fact", "old", False, CHEUNG, None))
