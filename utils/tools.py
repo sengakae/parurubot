@@ -214,8 +214,8 @@ def _iso_utc(dt: datetime) -> str:
 
 
 async def search_web(ctx, query):
-    # Single grounded request (gemini-2.5 can't mix google_search with function
-    # calling). No empty-response retries: the outer model can answer without it.
+    # Single grounded request, kept apart from the function-calling loop.
+    # No empty-response retries: the outer model can answer without it.
     response = await asyncio.to_thread(
         _generate_with_error_retry,
         model=MODEL,
@@ -230,7 +230,7 @@ async def search_web(ctx, query):
 
 async def read_url(ctx, url, question=None):
     # Its own request for the same reason as search_web: url_context is a built-in
-    # tool and can't share a request with function declarations on gemini-2.5.
+    # tool, kept apart from the function-calling loop.
     if not url.startswith(("http://", "https://")):
         return {"error": "Only http(s) links can be read."}
     prompt = f"Read this page: {url}\n\n" + (

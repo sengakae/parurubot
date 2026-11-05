@@ -27,7 +27,7 @@ url_context_config = types.GenerateContentConfig(
 )
 
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL = "gemini-2.5-flash-lite"
+MODEL = "gemini-3.5-flash-lite"
 MAX_API_RETRIES = 3
 # Gemini sometimes finishes normally but returns no text, mostly when a web search
 # finds nothing (e.g. obscure handles). Retry it, then fall back to no search.
@@ -234,9 +234,12 @@ async def chat_with_ai(
     config = types.GenerateContentConfig(
         tools=[types.Tool(function_declarations=TOOL_DECLARATIONS)],
         system_instruction=system_message,
-        thinking_config=types.ThinkingConfig(include_thoughts=False),
-        # ~100 instead of ~300 tokens per second: a 30-minute video at the default
-        # resolution is ~600k tokens, so one retry blows the 1M input tokens/minute limit
+        # The model's default "minimal" level can stop tool loops too early.
+        thinking_config=types.ThinkingConfig(
+            include_thoughts=False, thinking_level=types.ThinkingLevel.MEDIUM
+        ),
+        # ~100 instead of ~300 tokens per second: at high resolution a 30-minute video
+        # is ~600k tokens, so one retry blows the 1M input tokens/minute limit
         media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW if videos else None,
     )
 
@@ -272,7 +275,11 @@ async def chat_with_ai(
                 types.Content(
                     role="user",
                     parts=[
-                        types.Part.from_function_response(name=call.name, response=result)
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                id=call.id, name=call.name, response=result
+                            )
+                        )
                         for call, result in zip(calls, results)
                     ],
                 )

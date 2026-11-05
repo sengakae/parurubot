@@ -1,6 +1,6 @@
 chromadb
 discord.py
-google-genai
+google-genai>=2.30.1
 opentelemetry-api==1.45.1
 opentelemetry-sdk==1.45.1
 opentelemetry-exporter-otlp-proto-grpc==1.45.1
