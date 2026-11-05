@@ -27,7 +27,7 @@ url_context_config = types.GenerateContentConfig(
 )
 
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-2.5-flash-lite"
 MAX_API_RETRIES = 3
 # Gemini sometimes finishes normally but returns no text, mostly when a web search
 # finds nothing (e.g. obscure handles). Retry it, then fall back to no search.
