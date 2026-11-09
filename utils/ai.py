@@ -43,6 +43,20 @@ def _is_blocked(response) -> bool:
 
 
 def extract_response_text(response) -> str | None:
+    candidates = getattr(response, "candidates", None) or []
+    first_parts = getattr(getattr(candidates[0], "content", None), "parts", None) if candidates else None
+    split_text = [
+        part.text
+        for part in first_parts or []
+        if getattr(part, "text", None) and not getattr(part, "thought", False)
+    ]
+    # Seen once: the model wrote its reasoning as visible text before the answer.
+    # Logging the parts shows whether that comes as its own part we could drop.
+    if len(split_text) > 1:
+        logger.warning(
+            "Gemini returned %d text parts: %s", len(split_text), [t[:80] for t in split_text]
+        )
+
     try:
         text = response.text
         if text:

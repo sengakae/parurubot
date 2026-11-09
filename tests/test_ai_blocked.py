@@ -35,6 +35,13 @@ def test_blocked_generate_is_not_retried(monkeypatch):
     assert len(calls) == 1
 
 
+def test_multiple_text_parts_are_logged(caplog):
+    parts = [NS(text="thinking process: ...", thought=None), NS(text="the answer", thought=None)]
+    response = NS(text="thinking process: ...the answer", candidates=[NS(content=NS(parts=parts))])
+    assert ai.extract_response_text(response) == "thinking process: ...the answer"
+    assert "Gemini returned 2 text parts" in caplog.text
+
+
 def test_videos_use_low_media_resolution(monkeypatch):
     calls = []
     monkeypatch.setattr(ai, "_generate_with_error_retry", fake_generate([OK, OK], calls))

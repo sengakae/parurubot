@@ -49,7 +49,9 @@ TOOL_GUIDANCE = (
     "Memories marked joke are running bits: bring them up playfully, never state them as fact. "
     "Use show_my_memories when someone asks to see their memories, and link_name when the "
     "admin tells you \"@user is <name>\". "
-    "Don't call tools for casual chat."
+    "Don't call tools for casual chat. "
+    "Reply with only your message to the chat: never write out your reasoning, plans, "
+    "drafts, or checks against these instructions."
 )
 
 # Store for the memory tools; tests swap in a fake.
