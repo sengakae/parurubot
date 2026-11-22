@@ -19,6 +19,12 @@ LOCKED_NAMES: dict[str, int] = {"sengakae": PARTNER_USER_ID}
 
 MAX_NAME_LENGTH = 32
 SELF_WORDS = {"me", "myself"}
+GOES_BY = "goes by "
+
+
+def _fact_key(text: str) -> str:
+    """Compare facts ignoring case, spacing and trailing punctuation."""
+    return " ".join(text.casefold().rstrip(".!? ").split())
 
 
 def normalize_name(raw: str | None) -> str | None:
@@ -47,16 +53,14 @@ class Op:
 class ApplyContext:
     guild_id: int
     messages: dict[int, QueuedMessage]
-    member_names: dict[str, int]
+    member_names: dict[str, int | None]
     is_pending: Callable[[int], bool]
 
 
-def _tied_to(user_id, msg, messages) -> bool:
-    """The source message points at the user: they wrote it, it replies to or mentions
-    them, or they replied to its author. Being in the room nearby is not enough."""
-    if user_id in (msg.author_id, msg.reply_to_author_id) or user_id in msg.mention_ids:
-        return True
-    return any(m.author_id == user_id and m.reply_to_author_id == msg.author_id for m in messages)
+def _tied_to(user_id, msg) -> bool:
+    """The source message itself points at the user: they wrote it, or it replies to or
+    mentions them. Who answers afterwards proves nothing; anyone can ask about anyone."""
+    return user_id in (msg.author_id, msg.reply_to_author_id) or user_id in msg.mention_ids
 
 
 async def _owned_memory(guild_id, memory_id, store):
@@ -72,34 +76,54 @@ async def _apply_add(op, msg, ctx, store) -> bool:
     content = (op.content or "").strip()
     if not content:
         return False
+    linked = False
     if op.subject == "self":
-        await store.add_memory(
-            ctx.guild_id, msg.author_id, None, "fact", content, op.joke, msg.author_id, msg.id
-        )
-        return True
-
-    name = normalize_name(op.name)
-    if name is None:
-        return False
-    links = await store.get_links(ctx.guild_id)
-
-    # An @mention is an exact account: link the name to it if the name is free,
-    # and file the fact under that account either way.
-    mentioned_id = msg.mention_names.get(name)
-    if mentioned_id is not None:
-        if name not in LOCKED_NAMES and name not in links:
-            await store.link_name(ctx.guild_id, name, mentioned_id, msg.author_id, msg.id)
-        await store.add_memory(
-            ctx.guild_id, mentioned_id, name, "fact", content, op.joke, msg.author_id, msg.id
-        )
-        return True
-
-    user_id = LOCKED_NAMES.get(name) or links.get(name)
-    if user_id is None:
-        addressed = op.addressed and name in msg.content.casefold()
-        # Told straight to paruru: a new name starts its own profile.
-        if name not in ctx.member_names and not addressed and not msg.direct:
+        name, user_id = None, msg.author_id
+    else:
+        name = normalize_name(op.name)
+        if name is None:
             return False
+        links = await store.get_links(ctx.guild_id)
+        # An @mention is an exact account, and so is a name exactly one member goes by
+        # (ambiguous member names map to None).
+        user_id = (
+            msg.mention_names.get(name)
+            or LOCKED_NAMES.get(name)
+            or links.get(name)
+            or ctx.member_names.get(name)
+        )
+        if user_id is None:
+            addressed = op.addressed and name in msg.content.casefold()
+            # Told straight to paruru: a new name starts its own profile.
+            if name not in ctx.member_names and not addressed and not msg.direct:
+                return False
+        elif name not in LOCKED_NAMES and name not in links:
+            await store.link_name(ctx.guild_id, name, user_id, msg.author_id, msg.id)
+            linked = True
+
+    if content.casefold().startswith(GOES_BY):
+        # A name, not a fact: link it to the account, or drop it when there is none.
+        if user_id is None:
+            return linked
+        alias = normalize_name(content[len(GOES_BY):].rstrip(".!? "))
+        if alias in (None, name) or alias in LOCKED_NAMES:
+            return linked
+        # another member's name (or one two members share) is theirs, not an alias
+        if ctx.member_names.get(alias, user_id) != user_id:
+            return linked
+        if alias in await store.get_links(ctx.guild_id):
+            return linked
+        await store.link_name(ctx.guild_id, alias, user_id, msg.author_id, msg.id)
+        return True
+
+    existing = await (
+        store.get_user_memories(ctx.guild_id, user_id)
+        if user_id is not None
+        else store.get_name_memories(ctx.guild_id, name)
+    )
+    key = _fact_key(content)
+    if any(r["kind"] == "fact" and _fact_key(r["content"]) == key for r in existing):
+        return linked
     await store.add_memory(
         ctx.guild_id, user_id, name, "fact", content, op.joke, msg.author_id, msg.id
     )
@@ -132,7 +156,7 @@ async def _apply_update_or_forget(op, msg, ctx, store) -> bool:
 
 async def _apply_link(op, msg, ctx, store) -> bool:
     name = normalize_name(op.name)
-    if name is None or not _tied_to(op.user_id, msg, ctx.messages.values()):
+    if name is None or not _tied_to(op.user_id, msg):
         return False
     locked_id = LOCKED_NAMES.get(name)
     if locked_id is not None and op.user_id != locked_id:

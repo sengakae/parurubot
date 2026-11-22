@@ -58,12 +58,76 @@ def test_self_add():
     assert row["user_id"] == ANTO and row["added_by"] == ANTO and row["name"] is None
 
 
-def test_name_add_unlinked_member():
+def test_name_add_member_name_links_to_that_member():
+    # "ben" is Ben's display name: file it on the account, not a separate profile
     store = FakeStore()
     m = qmsg(1, content="ben is going to japan")
     run(apply_ops([Op("add", 1, subject="name", name="Ben", content="going to japan")], context(m), store))
     [row] = store.facts()
-    assert row["user_id"] is None and row["name"] == "ben" and row["added_by"] == ANTO
+    assert row["user_id"] == BEN and row["name"] == "ben" and row["added_by"] == ANTO
+    assert run(store.get_links(G)) == {"ben": BEN}
+
+
+def test_name_add_ambiguous_member_name_stays_unlinked():
+    # two members answer to "ben": don't guess which one
+    store = FakeStore()
+    m = qmsg(1, content="ben is going to japan")
+    run(apply_ops([Op("add", 1, subject="name", name="ben", content="going to japan")],
+                  context(m, members={"ben": None}), store))
+    [row] = store.facts()
+    assert row["user_id"] is None and run(store.get_links(G)) == {}
+
+
+@pytest.mark.parametrize("subject, name, content, expected", [
+    ("self", None, "goes by zenon", ANTO),  # "call me zenon" -> the speaker
+    ("name", "ben", "goes by zenon", BEN),  # "ben goes by zenon" -> ben's account
+    ("self", None, "Goes by Zenon.", ANTO),  # trailing punctuation is not part of the name
+])
+def test_goes_by_becomes_a_name_link(subject, name, content, expected):
+    store = FakeStore()
+    m = qmsg(1, content="call me zenon")
+    run(apply_ops([Op("add", 1, subject=subject, name=name, content=content)], context(m), store))
+    assert store.facts() == []
+    assert run(store.get_links(G))["zenon"] == expected
+
+
+@pytest.mark.parametrize("members", [
+    {"ben": BEN, "anto": ANTO},  # "anto" is another member's name
+    {"ben": BEN, "anto": None},  # two members go by "anto"
+])
+def test_goes_by_cannot_take_another_members_name(members):
+    # "ben goes by anto" as a joke must not send anto's future facts to ben
+    store = FakeStore()
+    m = qmsg(1, author_id=CHEUNG, content="ben goes by anto now lmao")
+    run(apply_ops([Op("add", 1, subject="name", name="ben", content="goes by anto")],
+                  context(m, members=members), store))
+    assert "anto" not in run(store.get_links(G))
+
+
+def test_goes_by_without_an_account_is_dropped():
+    # "goes by ben" filed under the unlinked name "ben" says nothing
+    store = FakeStore()
+    m = qmsg(1, author_id=CHEUNG, content="jules goes by jj", reply_to=None)
+    reacts = run(apply_ops([Op("add", 1, subject="name", name="jules", content="goes by jj", addressed=True)],
+                           context(m, members={}), store))
+    assert store.facts() == [] and run(store.get_links(G)) == {} and reacts == []
+
+
+@pytest.mark.parametrize("existing", ["plays epic seven", "Plays Epic Seven.", "plays  epic seven "])
+def test_duplicate_fact_not_saved(existing):
+    store = FakeStore()
+    run(store.add_memory(G, ANTO, None, "fact", existing, False, ANTO, None))
+    m = qmsg(1, content="i play epic seven")
+    reacts = run(apply_ops([Op("add", 1, subject="self", content="plays epic seven")], context(m), store))
+    assert len(store.facts()) == 1 and reacts == []
+
+
+def test_same_fact_for_another_person_is_saved():
+    store = FakeStore()
+    run(store.add_memory(G, BEN, "ben", "fact", "plays epic seven", False, BEN, None))
+    m = qmsg(1, content="i play epic seven")
+    run(apply_ops([Op("add", 1, subject="self", content="plays epic seven")], context(m), store))
+    assert len(store.facts()) == 2
 
 
 def test_name_add_unknown_dropped():
@@ -157,11 +221,22 @@ def test_link_rejected_when_message_not_tied_to_user():
     assert run(store.get_links(G)) == {} and reacts == []
 
 
-def test_link_accepted_when_user_answers_the_message():
+@pytest.mark.parametrize("answer", [
+    qmsg(2, author_id=CHEUNG, content="is it claris"),  # answered right after, no reply
+    qmsg(2, author_id=CHEUNG, content="yea", reply_to=ANTO),  # even a direct reply
+])
+def test_link_rejected_when_user_only_answers(answer):
+    # "...on ur Spotify, Ben" -> another member answers: anyone can respond about anyone
     store = FakeStore()
-    m1 = qmsg(1, author_id=ANTO, content="are you looking at countdown japan cheung")
-    m2 = qmsg(2, author_id=CHEUNG, content="yea", reply_to=ANTO)
-    run(apply_ops([Op("link", 1, name="cheung", user_id=CHEUNG)], context(m1, m2), store))
+    m1 = qmsg(1, author_id=ANTO, content="one of them is in that playlist on ur spotify, ben")
+    run(apply_ops([Op("link", 1, name="ben", user_id=CHEUNG)], context(m1, answer), store))
+    assert run(store.get_links(G)) == {}
+
+
+def test_link_accepted_when_message_replies_to_user_by_name():
+    store = FakeStore()
+    m = qmsg(1, author_id=ANTO, content="are you looking at countdown japan cheung", reply_to=CHEUNG)
+    run(apply_ops([Op("link", 1, name="cheung", user_id=CHEUNG)], context(m), store))
     assert run(store.get_links(G)) == {"cheung": CHEUNG}
 
 

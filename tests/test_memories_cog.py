@@ -39,6 +39,15 @@ def test_member_name_map():
     assert names == {"benjamin": 200, "ben": 200, "benj_99": 200, "cheung": 300}
 
 
+def test_member_name_map_shared_name_is_ambiguous():
+    guild = NS(members=[
+        NS(id=200, display_name="ben", nick=None, name="ben_a", global_name=None, bot=False),
+        NS(id=300, display_name="Ben", nick=None, name="ben_b", global_name=None, bot=False),
+    ])
+    names = member_name_map(guild)
+    assert names["ben"] is None and names["ben_a"] == 200 and names["ben_b"] == 300
+
+
 class FakeMessageRef:
     def __init__(self, reactions):
         self.reactions = reactions
