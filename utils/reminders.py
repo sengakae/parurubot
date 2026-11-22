@@ -148,11 +148,15 @@ def _add_months(dt: datetime, months: int) -> datetime:
     return dt.replace(year=year, month=month, day=day)
 
 
-def next_occurrence(anchor: datetime, every: str, after: datetime) -> datetime:
+def next_occurrence(anchor: datetime, every: str, after: datetime, tz: str | None = None) -> datetime:
     """First occurrence of anchor + k*interval (k >= 1) strictly after `after`.
 
     Computed from the anchor each time so month-end days don't drift (Jan 31 -> Feb 28 -> Mar 31).
+    With `tz`, the steps are taken on that zone's clock, so 9am stays 9am across daylight
+    saving (adding days to a zoned datetime keeps its wall-clock time).
     """
+    if tz:
+        anchor = anchor.astimezone(ZoneInfo(tz))
     n, unit = int(every[:-1]), every[-1]
     k = 1
     while True:
@@ -165,8 +169,22 @@ def next_occurrence(anchor: datetime, every: str, after: datetime) -> datetime:
         else:
             candidate = _add_months(anchor, 12 * n * k)
         if candidate > after:
-            return candidate
+            return candidate.astimezone(timezone.utc)
         k += 1
+
+
+def reminder_zone(value: str) -> str | None:
+    """The IANA zone named in a time like 2026-12-01T09:00PST, or None (countdowns and
+    bare offsets name no zone)."""
+    match = _ISO_TZ_ABBREV_RE.match(value.strip())
+    if not match:
+        return None
+    zone = _TZ_ABBREVS.get(match[2].upper(), match[2])
+    try:
+        ZoneInfo(zone)
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+    return zone
 
 
 def discord_timestamp(dt: datetime, style: str = "R") -> str:

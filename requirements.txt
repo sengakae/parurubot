@@ -7,6 +7,5 @@ opentelemetry-exporter-otlp-proto-grpc==1.45.1
 pandas
 requests
 python-dotenv
-sentence-transformers
 asyncpg
-tzdata
+tzdata>=2026.6  # 2026f: Vancouver is UTC-7 year-round

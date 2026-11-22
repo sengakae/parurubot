@@ -6,7 +6,8 @@ from discord.ext import commands
 
 import db
 from utils.reminders import (describe_recurrence, discord_timestamp, next_occurrence,
-                             normalize_reminder_code, parse_recurrence, parse_remind_time)
+                             normalize_reminder_code, parse_recurrence, parse_remind_time,
+                             reminder_zone)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class RemindMeCog(commands.Cog):
                 remind_at,
                 row["recur_every"],
                 row["recur_anchor"],
+                row["recur_tz"],
             )
         if rows:
             logger.info("Restored %d reminder(s) from database", len(rows))
@@ -65,6 +67,7 @@ class RemindMeCog(commands.Cog):
         remind_at: datetime,
         recur_every: str | None = None,
         recur_anchor: datetime | None = None,
+        recur_tz: str | None = None,
     ):
         if reminder_id in self._tasks:
             return
@@ -84,7 +87,7 @@ class RemindMeCog(commands.Cog):
             try:
                 if recur_every:
                     next_at = next_occurrence(
-                        recur_anchor, recur_every, datetime.now(timezone.utc)
+                        recur_anchor, recur_every, datetime.now(timezone.utc), recur_tz
                     )
                     await db.update_reminder_time(reminder_id, next_at)
                 else:
@@ -101,6 +104,7 @@ class RemindMeCog(commands.Cog):
                     next_at,
                     recur_every,
                     recur_anchor,
+                    recur_tz,
                 )
 
         self._tasks[reminder_id] = asyncio.create_task(_fire())
@@ -124,12 +128,15 @@ class RemindMeCog(commands.Cog):
         await channel.send(f"{mention} **Reminder:** {message}")
 
     async def create_reminder(
-        self, user_id, channel_id, message, remind_at: datetime, recur_every=None
+        self, user_id, channel_id, message, remind_at: datetime, recur_every=None,
+        recur_tz=None,
     ) -> str:
-        """Store and schedule a reminder. Returns its public code."""
+        """Store and schedule a reminder. Returns its public code. `recur_tz` keeps a
+        repeating reminder at the same local time across daylight saving."""
         recur_anchor = remind_at if recur_every else None
+        recur_tz = recur_tz if recur_every else None
         reminder_id, code = await db.add_reminder(
-            user_id, channel_id, message, remind_at, recur_every, recur_anchor
+            user_id, channel_id, message, remind_at, recur_every, recur_anchor, recur_tz
         )
         self._schedule(
             reminder_id,
@@ -139,6 +146,7 @@ class RemindMeCog(commands.Cog):
             remind_at,
             recur_every,
             recur_anchor,
+            recur_tz,
         )
         return code
 
@@ -226,7 +234,8 @@ class RemindMeCog(commands.Cog):
             return
 
         code = await self.create_reminder(
-            ctx.author.id, ctx.channel.id, message, remind_at, recur_every
+            ctx.author.id, ctx.channel.id, message, remind_at, recur_every,
+            reminder_zone(parts[-1]) if len(parts) == 2 else None,
         )
 
         when = discord_timestamp(remind_at)

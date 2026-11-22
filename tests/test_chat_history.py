@@ -37,7 +37,7 @@ def test_follow_up_sees_the_earlier_question(monkeypatch):
 
     monkeypatch.setattr(main, "chat_with_ai", fake_chat)
     monkeypatch.setattr(main, "search_personal_notes", lambda *a, **k: None)
-    monkeypatch.setattr(main, "collect_images_from_message", no_images)
+    monkeypatch.setattr(main, "download_images", no_images)
     sent = []
     chan = channel(sent)
 

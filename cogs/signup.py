@@ -107,6 +107,12 @@ async def _save_signup(view: "SignupView") -> None:
     )
 
 
+async def _update_signup(interaction: discord.Interaction, view: "SignupView") -> None:
+    """Save first: if the message edit fails, a restart must not lose the change."""
+    await _save_signup(view)
+    await interaction.response.edit_message(embed=view.build_embed(), view=view)
+
+
 def _register_signup_view(bot: discord.Client, view: "SignupView") -> None:
     bot.add_view(view)
 
@@ -160,8 +166,7 @@ class PlusOnesSelect(discord.ui.Select):
 
         view.guest_counts[user_id] = count
         self.placeholder = f"Guests (+1s): {count}"
-        await interaction.response.edit_message(embed=view.build_embed(), view=view)
-        await _save_signup(view)
+        await _update_signup(interaction, view)
 
 
 class SignUpButton(discord.ui.Button):
@@ -192,8 +197,7 @@ class SignUpButton(discord.ui.Button):
             "plus_ones": plus_ones,
         }
 
-        await interaction.response.edit_message(embed=view.build_embed(), view=view)
-        await _save_signup(view)
+        await _update_signup(interaction, view)
 
 
 class DeleteSignupButton(discord.ui.Button):
@@ -222,8 +226,9 @@ class DeleteSignupButton(discord.ui.Button):
             description="This signup sheet was deleted by its creator.",
             color=discord.Color.dark_grey(),
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        # delete first: if the edit fails, a restart must not bring the sheet back
         await db.delete_signup_sheet(view.message_id)
+        await interaction.response.edit_message(embed=embed, view=view)
         view.stop()
 
 
@@ -246,8 +251,7 @@ class EndSignupButton(discord.ui.Button):
             return
 
         view.close()
-        await interaction.response.edit_message(embed=view.build_embed(), view=view)
-        await _save_signup(view)
+        await _update_signup(interaction, view)
 
 
 class LeaveSignupButton(discord.ui.Button):
@@ -272,8 +276,7 @@ class LeaveSignupButton(discord.ui.Button):
         del view.signups[user.id]
         view.guest_counts.pop(user.id, None)
 
-        await interaction.response.edit_message(embed=view.build_embed(), view=view)
-        await _save_signup(view)
+        await _update_signup(interaction, view)
 
 
 class SignupView(discord.ui.View):

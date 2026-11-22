@@ -12,7 +12,7 @@ from db import get_quote_by_key, init_db
 from history import add_message_to_history, get_channel_history
 from utils.ai import chat_with_ai, convert_pil_to_part
 from utils.identity import speaker_label, user_turn
-from utils.links import collect_images_from_message, extract_youtube_urls
+from utils.links import download_images, extract_youtube_urls, image_urls
 from utils.messages import split_message
 from utils.notes import load_personal_notes, search_personal_notes, sync_all_sheets
 from utils.tools import ToolContext
@@ -37,7 +37,12 @@ intents.message_content = True
 # Member names let the memory learner tell server members from outsiders.
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    # bot text comes from users and Gemini; never let it ping @everyone or a role
+    allowed_mentions=discord.AllowedMentions(everyone=False, roles=False),
+)
 
 
 @tasks.loop(hours=24)
@@ -107,12 +112,12 @@ async def on_message(message):
     message_content = message.content
 
     youtube_urls, stripped_text = extract_youtube_urls(message_content)
-    message_images = await collect_images_from_message(
-        stripped_text, message.attachments
-    )
+    # only the URLs: images are downloaded when someone asks paruru, not for every message
+    message_images = image_urls(stripped_text, message.attachments)
+    attached = len(image_urls("", message.attachments))
 
-    if message_images:
-        message_content += f" [sent {len(message_images)} image(s)]"
+    if attached:
+        message_content += f" [sent {attached} image(s)]"
     if youtube_urls:
         message_content += f" [shared {len(youtube_urls)} YouTube video(s)]"
 
@@ -127,32 +132,44 @@ async def on_message(message):
         )
 
 
-def build_history_context(history_messages, include_images=True):
+HISTORY_IMAGE_TRIES = 3
+
+
+async def latest_history_images(history_messages):
+    """Download the images of the newest history message that has any.
+
+    History keeps image URLs only. A message whose links turn out not to be images
+    (an article, an expired Discord attachment) is skipped, up to HISTORY_IMAGE_TRIES.
+    Returns (index of that message, images), or (None, []).
+    """
+    tries = HISTORY_IMAGE_TRIES
+    for i in range(len(history_messages) - 1, -1, -1):
+        if not history_messages[i]["images"]:
+            continue
+        images = await download_images(history_messages[i]["images"][:MAX_IMAGES])
+        if images:
+            return i, images
+        tries -= 1
+        if not tries:
+            break
+    return None, []
+
+
+def build_history_context(history_messages, image_index=None, images=()):
     """Build the history turn sent to the AI.
 
-    Only the most recent image message has its images attached. YouTube videos are
-    referenced by the URL in the message text only: re-sending them made every query
-    slow, and one unavailable video broke every query until !clear.
+    Only one message, the newest with images, has them attached (`image_index`).
+    YouTube videos are referenced by the URL in the message text only: re-sending them
+    made every query slow, and one unavailable video broke every query until !clear.
     """
     if not history_messages:
         return ""
 
-    last_image_index = None
-    if include_images:
-        last_image_index = next(
-            (
-                i
-                for i in range(len(history_messages) - 1, -1, -1)
-                if history_messages[i]["images"]
-            ),
-            None,
-        )
-
     conversation_parts = [{"text": "Here's the recent conversation context:"}]
     for i, msg in enumerate(history_messages):
         conversation_parts.append({"text": f"{msg['author']}: {msg['content']}"})
-        if i == last_image_index:
-            for img in msg["images"]:
+        if i == image_index:
+            for img in images:
                 conversation_parts.append(convert_pil_to_part(img))
 
     return {"role": "user", "parts": conversation_parts}
@@ -165,15 +182,13 @@ async def handle_ai_chat(message):
     try:
         channel_id = message.channel.id
 
-        current_images = []
+        current_image_urls = []
         current_videos = []
 
         """Check current message"""
         urls, stripped_text = extract_youtube_urls(cleaned_content)
         current_videos.extend(urls)
-        current_images.extend(
-            await collect_images_from_message(stripped_text, message.attachments)
-        )
+        current_image_urls.extend(image_urls(stripped_text, message.attachments))
 
         """Check replied message"""
         replied_msg = None
@@ -186,16 +201,13 @@ async def handle_ai_chat(message):
                     )
                 urls, stripped_text = extract_youtube_urls(replied_msg.content)
                 current_videos.extend(urls)
-                current_images.extend(
-                    await collect_images_from_message(
-                        stripped_text, replied_msg.attachments
-                    )
-                )
+                current_image_urls.extend(image_urls(stripped_text, replied_msg.attachments))
             except discord.NotFound:
                 logger.warning("Replied message not found, skipping reply context")
             except discord.HTTPException as e:
                 logger.warning(f"Could not fetch replied message: {e}")
 
+        current_images = await download_images(current_image_urls)
         if current_images:
             logger.info(f"Found {len(current_images)} images")
 
@@ -217,10 +229,10 @@ async def handle_ai_chat(message):
             current_videos = current_videos[:MAX_VIDEOS]
 
         history_messages = get_channel_history(channel_id, include_media=True)
-        include_history_images = not (current_images or current_videos)
-        history_has_images = include_history_images and any(
-            msg["images"] for msg in history_messages
-        )
+        image_index, history_images = (None, [])
+        if not (current_images or current_videos):
+            image_index, history_images = await latest_history_images(history_messages)
+        history_has_images = bool(history_images)
         # Recorded after reading history: this message is the prompt, not its own context.
         # Without it, a follow-up only sees paruru's last answer, not the question.
         add_message_to_history(channel_id, speaker_label(message.author), message.content)
@@ -238,7 +250,9 @@ async def handle_ai_chat(message):
         tool_ctx = ToolContext(bot=bot, message=message)
 
         async def ask(include_images):
-            history_context = build_history_context(history_messages, include_images)
+            history_context = build_history_context(
+                history_messages, image_index if include_images else None, history_images
+            )
             return await asyncio.wait_for(
                 chat_with_ai(
                     user_turn(message.author, cleaned_content, replied_msg),
@@ -254,7 +268,7 @@ async def handle_ai_chat(message):
         async with message.channel.typing():
             try:
                 try:
-                    response_text = await ask(include_history_images)
+                    response_text = await ask(include_images=True)
                 except asyncio.TimeoutError:
                     raise
                 except Exception as e:
@@ -281,7 +295,7 @@ async def handle_ai_chat(message):
             "Bot",
             response_text,
             is_bot=True,
-            images=current_images,
+            images=current_image_urls,
             videos=current_videos,
         )
 
