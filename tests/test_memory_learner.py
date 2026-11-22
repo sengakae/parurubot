@@ -5,7 +5,7 @@ from utils.memory_learner import LEARNER_INSTRUCTIONS, build_learner_prompt, par
 from utils.memory_queue import QueuedMessage
 
 
-def qmsg(message_id, content, author_id=100, label="anto", mentions=(), reply_to=None, reactions=None):
+def qmsg(message_id, content, author_id=100, label="rory", mentions=(), reply_to=None, reactions=None):
     return QueuedMessage(
         id=message_id,
         channel_id=10,
@@ -21,13 +21,13 @@ def qmsg(message_id, content, author_id=100, label="anto", mentions=(), reply_to
 
 
 def test_build_prompt_includes_ids_and_reactions():
-    batch = [qmsg(555, "ben is the global chairman of kpmg", mentions=[200], reply_to=300, reactions={"💀": 2})]
-    prompt = build_learner_prompt([], batch, ["ben", "anto"], {"ben": 200}, [])
-    assert "[555] anto (100): ben is the global chairman of kpmg" in prompt
+    batch = [qmsg(555, "milo is the keeper of the royal llamas", mentions=[200], reply_to=300, reactions={"💀": 2})]
+    prompt = build_learner_prompt([], batch, ["milo", "rory"], {"milo": 200}, [])
+    assert "[555] rory (100): milo is the keeper of the royal llamas" in prompt
     assert "mentions: 200" in prompt
     assert "reply to: 300" in prompt
     assert "reactions: 💀x2" in prompt
-    assert "ben -> 200" in prompt
+    assert "milo -> 200" in prompt
 
 
 def test_build_prompt_marks_context():
@@ -40,22 +40,22 @@ def test_build_prompt_marks_context():
 
 
 def test_build_prompt_lists_memories_with_ids():
-    memories = [{"id": 7, "user_id": 200, "name": "ben", "kind": "fact", "content": "plays sekiro", "joke": True}]
+    memories = [{"id": 7, "user_id": 200, "name": "milo", "kind": "fact", "content": "plays hopscotch", "joke": True}]
     prompt = build_learner_prompt([], [qmsg(1, "hi")], [], {}, memories)
-    assert "#7" in prompt and "plays sekiro" in prompt and "joke" in prompt
+    assert "#7" in prompt and "plays hopscotch" in prompt and "joke" in prompt
 
 
 def test_parse_ops_valid():
     raw = json.dumps({"ops": [
-        {"op": "add", "message_id": "555", "subject": "name", "name": "ben", "content": "global chairman of kpmg", "joke": True},
+        {"op": "add", "message_id": "555", "subject": "name", "name": "milo", "content": "keeper of the royal llamas", "joke": True},
         {"op": "add", "message_id": "556", "subject": "self", "content": "likes tea"},
-        {"op": "update", "message_id": "557", "memory_id": "7", "content": "plays lies of p"},
+        {"op": "update", "message_id": "557", "memory_id": "7", "content": "plays marbles"},
         {"op": "forget", "message_id": "558", "memory_id": "8"},
-        {"op": "link", "message_id": "559", "name": "ben", "user_id": "200"},
+        {"op": "link", "message_id": "559", "name": "milo", "user_id": "200"},
     ]})
     ops = parse_ops(raw)
     assert [o.op for o in ops] == ["add", "add", "update", "forget", "link"]
-    assert ops[0].message_id == 555 and ops[0].joke is True and ops[0].name == "ben"
+    assert ops[0].message_id == 555 and ops[0].joke is True and ops[0].name == "milo"
     assert ops[1].subject == "self" and ops[1].joke is False
     assert ops[2].memory_id == 7
     assert ops[4].user_id == 200
@@ -67,7 +67,7 @@ def test_parse_ops_skips_invalid():
         {"op": "forget", "message_id": "2"},
         {"op": "add", "message_id": "abc", "subject": "self", "content": "x"},
         {"op": "add", "message_id": "3", "subject": "name", "content": "no name"},
-        {"op": "link", "message_id": "4", "name": "ben"},
+        {"op": "link", "message_id": "4", "name": "milo"},
         {"op": "add", "message_id": "5", "subject": "self", "content": "kept"},
     ]})
     ops = parse_ops(raw)
@@ -77,15 +77,14 @@ def test_parse_ops_skips_invalid():
 
 
 def test_build_prompt_marks_direct_messages():
-    m = qmsg(1, "paruru, ben is the chairman")
+    m = qmsg(1, "paruru, milo is the llama keeper")
     m.direct = True
     prompt = build_learner_prompt([], [m, qmsg(2, "lol")], [], {}, [])
-    assert "[1] (to paruru) anto (100): paruru, ben is the chairman" in prompt
-    assert "[2] anto (100): lol" in prompt
+    assert "[1] (to paruru) rory (100): paruru, milo is the llama keeper" in prompt
+    assert "[2] rory (100): lol" in prompt
 
 
 def test_instructions_exclude_requests_to_paruru():
-    # "paruru, cheap chinese food in richmond" was being saved as a memory about the asker
     text = LEARNER_INSTRUCTIONS.lower()
     assert "questions and requests" in text
     assert "not facts" in text

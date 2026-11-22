@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 import utils.tools as tools
 from tests.fake_store import FakeStore
 
-ADMIN, ANTO, BEN = 1, 100, 200
+ADMIN, RORY, MILO = 1, 100, 200
 
 
 def ctx(author_id, mentions=(), guild_id=5):
@@ -20,14 +20,14 @@ def ctx(author_id, mentions=(), guild_id=5):
 def test_link_name_non_admin_rejected(monkeypatch):
     monkeypatch.setenv("OWNER_ID", str(ADMIN))
     monkeypatch.setattr(tools, "memory_store", FakeStore())
-    result = asyncio.run(tools.link_name(ctx(ANTO, mentions=[BEN]), name="ben"))
+    result = asyncio.run(tools.link_name(ctx(RORY, mentions=[MILO]), name="milo"))
     assert result == {"error": "only the admin can link names"}
 
 
 def test_link_name_requires_mention(monkeypatch):
     monkeypatch.setenv("OWNER_ID", str(ADMIN))
     monkeypatch.setattr(tools, "memory_store", FakeStore())
-    result = asyncio.run(tools.link_name(ctx(ADMIN), name="ben"))
+    result = asyncio.run(tools.link_name(ctx(ADMIN), name="milo"))
     assert "error" in result
 
 
@@ -35,33 +35,33 @@ def test_link_name_admin_links(monkeypatch):
     monkeypatch.setenv("OWNER_ID", str(ADMIN))
     store = FakeStore()
     monkeypatch.setattr(tools, "memory_store", store)
-    result = asyncio.run(tools.link_name(ctx(ADMIN, mentions=[BEN]), name="Ben"))
+    result = asyncio.run(tools.link_name(ctx(ADMIN, mentions=[MILO]), name="Milo"))
     assert result == {"result": "linked"}
-    assert asyncio.run(store.get_links(5)) == {"ben": BEN}
+    assert asyncio.run(store.get_links(5)) == {"milo": MILO}
 
 
 def test_recall_person_me(monkeypatch):
     store = FakeStore()
-    asyncio.run(store.add_memory(5, ANTO, None, "fact", "likes tea", False, ANTO, None))
-    asyncio.run(store.add_memory(5, ANTO, None, "fact", "chairman of kpmg", True, BEN, None))
+    asyncio.run(store.add_memory(5, RORY, None, "fact", "likes tea", False, RORY, None))
+    asyncio.run(store.add_memory(5, RORY, None, "fact", "keeper of the llamas", True, MILO, None))
     monkeypatch.setattr(tools, "memory_store", store)
-    result = asyncio.run(tools.recall_person(ctx(ANTO), name="me"))
+    result = asyncio.run(tools.recall_person(ctx(RORY), name="me"))
     assert result["facts"] == ["likes tea"]
-    assert result["running_jokes"] == ["chairman of kpmg"]
+    assert result["running_jokes"] == ["keeper of the llamas"]
     assert "never" in result["note"] and "true" in result["note"]
 
 
 def test_recall_person_facts_only_has_no_joke_note(monkeypatch):
     store = FakeStore()
-    asyncio.run(store.add_memory(5, ANTO, None, "fact", "likes tea", False, ANTO, None))
+    asyncio.run(store.add_memory(5, RORY, None, "fact", "likes tea", False, RORY, None))
     monkeypatch.setattr(tools, "memory_store", store)
-    result = asyncio.run(tools.recall_person(ctx(ANTO), name="me"))
+    result = asyncio.run(tools.recall_person(ctx(RORY), name="me"))
     assert result == {"facts": ["likes tea"]}
 
 
 def test_recall_person_nothing(monkeypatch):
     monkeypatch.setattr(tools, "memory_store", FakeStore())
-    result = asyncio.run(tools.recall_person(ctx(ANTO), name="jules"))
+    result = asyncio.run(tools.recall_person(ctx(RORY), name="wren"))
     assert result == {"result": "nothing remembered"}
 
 

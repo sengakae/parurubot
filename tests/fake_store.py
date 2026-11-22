@@ -95,6 +95,5 @@ class FakeStore:
             ):
                 r["user_id"] = None
 
-    # test helpers
     def facts(self):
         return [r for r in self.rows.values() if r["kind"] == "fact"]
