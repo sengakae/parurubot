@@ -241,3 +241,27 @@ def test_describe_op_names_what_each_op_does():
     )
     assert describe(Op(op="forget", message_id=7, memory_id=12)) == "forget #12 (msg 7)"
     assert describe(Op(op="link", message_id=8, name="ben", user_id=111)) == "link ben -> 111 (msg 8)"
+
+
+def queued(content, author_id=100):
+    return QueuedMessage(id=1, channel_id=10, guild_id=1, author_id=author_id, author_label="x",
+                         content=content, mention_ids=[], reply_to_author_id=None,
+                         created_at=datetime.now(timezone.utc))
+
+
+def test_relevant_memories_include_a_named_members_account():
+    store = FakeStore()
+    on_account = asyncio.run(store.add_memory(1, 300, None, "fact", "plays maplestory", False, 300, None))
+    under_name = asyncio.run(store.add_memory(1, None, "matcha", "fact", "picked up crocs", False, 100, None))
+    cog = MemoriesCog(bot=NS(), store=store)
+    rows = asyncio.run(cog._relevant_memories(1, [queued("matcha is grinding again")], {"matcha": 300}, {}))
+    assert {r["id"] for r in rows} == {on_account, under_name}
+
+
+def test_relevant_memories_skip_ambiguous_member_names():
+    store = FakeStore()
+    asyncio.run(store.add_memory(1, 300, None, "fact", "plays maplestory", False, 300, None))
+    under_name = asyncio.run(store.add_memory(1, None, "ben", "fact", "likes tea", False, 100, None))
+    cog = MemoriesCog(bot=NS(), store=store)
+    rows = asyncio.run(cog._relevant_memories(1, [queued("ben said hi")], {"ben": None}, {}))
+    assert {r["id"] for r in rows} == {under_name}
