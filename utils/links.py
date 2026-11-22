@@ -7,6 +7,8 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
 
 class CustomClientRequest(aiohttp.ClientRequest):
     def __init__(self, *args, **kwargs):
@@ -37,6 +39,10 @@ async def download_image_from_url(url: str):
                         f"URL is not an image: {url} (Content-Type: {content_type})"
                     )
                     return None
+                # the e2-micro has ~200 MB free; one huge "image" must not take it all
+                if (resp.content_length or 0) > MAX_IMAGE_BYTES:
+                    logger.info(f"Image too large, skipping: {url} ({resp.content_length} bytes)")
+                    return None
 
                 data = await resp.read()
                 image = Image.open(io.BytesIO(data))
@@ -47,36 +53,23 @@ async def download_image_from_url(url: str):
         return None
 
 
-async def collect_images_from_attachments(attachments):
-    """Helper function to collect images from attachments"""
+def image_urls(content, attachments=()):
+    """URLs that may hold a message's images: its image attachments, plus every link
+    (a link only turns out to be an image when it is downloaded)."""
+    urls = [
+        a.url for a in attachments
+        if a.content_type is None or a.content_type.startswith("image/")
+    ]
+    return urls + extract_links(content)
+
+
+async def download_images(urls):
+    """Download the URLs that are images; the rest are skipped."""
     images = []
-    for attachment in attachments:
-        image = await download_image_from_url(attachment.url)
+    for url in urls:
+        image = await download_image_from_url(url)
         if image:
             images.append(image)
-    return images
-
-
-async def collect_images_from_links(content):
-    """Helper function to collect images from links in content"""
-    images = []
-    links = extract_links(content)
-    for link in links:
-        image = await download_image_from_url(link)
-        if image:
-            images.append(image)
-    return images
-
-
-async def collect_images_from_message(content, attachments=None):
-    """Collect all images from a single message"""
-    images = []
-
-    if attachments:
-        images.extend(await collect_images_from_attachments(attachments))
-
-    images.extend(await collect_images_from_links(content))
-
     return images
 
 

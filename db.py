@@ -40,7 +40,8 @@ async def init_db():
             ALTER TABLE reminders
                 ADD COLUMN IF NOT EXISTS recur_every TEXT,
                 ADD COLUMN IF NOT EXISTS recur_anchor TIMESTAMPTZ,
-                ADD COLUMN IF NOT EXISTS code TEXT
+                ADD COLUMN IF NOT EXISTS code TEXT,
+                ADD COLUMN IF NOT EXISTS recur_tz TEXT
         """)
         await conn.execute("""
             UPDATE reminders SET code = substr(md5(random()::text || id::text), 1, 6)
@@ -136,7 +137,8 @@ async def get_quote_by_key(key):
 
 
 async def add_reminder(
-    user_id, channel_id, message, remind_at, recur_every=None, recur_anchor=None
+    user_id, channel_id, message, remind_at, recur_every=None, recur_anchor=None,
+    recur_tz=None,
 ):
     """Insert a reminder. Returns (id, code); code is the random public ID shown to users."""
     async with pool.acquire() as conn:
@@ -147,9 +149,9 @@ async def add_reminder(
                     """
                     INSERT INTO reminders (
                         user_id, channel_id, message, remind_at,
-                        recur_every, recur_anchor, code
+                        recur_every, recur_anchor, code, recur_tz
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     RETURNING id
                     """,
                     user_id,
@@ -159,6 +161,7 @@ async def add_reminder(
                     recur_every,
                     recur_anchor,
                     code,
+                    recur_tz,
                 )
                 return reminder_id, code
             except asyncpg.UniqueViolationError:
