@@ -60,14 +60,16 @@ def should_queue(message) -> bool:
     )
 
 
-def member_name_map(guild) -> dict[str, int]:
+def member_name_map(guild) -> dict[str, int | None]:
+    """Every name a member goes by -> their id, or None when two members share it."""
     names = {}
     for member in guild.members:
         if member.bot:
             continue
         for name in (member.display_name, member.nick, member.name, member.global_name):
             if name:
-                names.setdefault(name.casefold(), member.id)
+                key = name.casefold()
+                names[key] = member.id if names.get(key, member.id) == member.id else None
     return names
 
 
@@ -355,6 +357,9 @@ class MemoriesCog(commands.Cog):
                 if word in links:
                     user_ids.add(links[word])
                 elif word in member_names:
+                    # facts about a member name now go on their account; older ones may not
+                    if member_names[word] is not None:
+                        user_ids.add(member_names[word])
                     unlinked_names.add(word)
 
         memories = {}

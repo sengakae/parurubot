@@ -22,6 +22,7 @@ What to remember
 - Lasting facts about people (where they live, plans, jobs, games they play, likes and dislikes) and running jokes about them. Not passing chatter, opinions about the topic of the moment, or anything about the bot.
 - Questions and requests are not facts, even when said to you: asking for recommendations or info ("what should i get for lunch in richmond", "cheap chinese food in richmond"), or a passing craving given as a request ("im feeling japanese"). Do not save what they asked for, where they asked about, or what they seem to want. Only remember something the person states as true about themselves or someone else ("i live in richmond", "i'm vegetarian").
 - content is short, lowercase, third person, without the person's name: "going to japan in march", "hates cilantro".
+- content starting with "goes by" means a nickname ("goes by zenon") and is saved as a name, so never use it for anything else: write travel as "takes the bus to work".
 - Never take facts from lines marked read-only context; use them only to understand the new messages.
 
 Who it is about
@@ -36,7 +37,7 @@ Jokes
 
 Changing memory
 - If something already remembered changed, use update with that memory's id. If it is no longer true, use forget. Never add a duplicate of an existing memory.
-- link a name to a person when the conversation makes it clear who it is ("that's ben", "i'm ben", replying "ben" to someone). user_id must be an id shown in the message metadata.
+- link a name to a person only when one message says it directly: they name themselves ("i'm ben"), or the message replies to or @mentions them while calling them that ("that's ben", "thanks ben" as a reply). Who answers or speaks next proves nothing: anyone can respond to a message about anyone else. user_id must be the message's author, its reply target, or a mention.
 - Every op needs the message_id of the new message that caused it.
 """
 
