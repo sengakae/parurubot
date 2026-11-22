@@ -10,6 +10,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import discord
 
@@ -22,7 +23,8 @@ from utils.memory_rules import admin_link, recall
 from utils.messages import fetch_channel_messages
 from utils.notes import search_personal_notes
 from utils.reminders import (describe_recurrence, discord_timestamp, next_occurrence,
-                             normalize_reminder_code, parse_recurrence, parse_remind_time)
+                             normalize_reminder_code, parse_recurrence, parse_remind_time,
+                             reminder_zone)
 from utils.weather import fetch_weather
 
 logger = logging.getLogger(__name__)
@@ -127,6 +129,13 @@ TOOL_DECLARATIONS = [
                     "description": (
                         "Optional repeat interval: <n>d, <n>w, <n>m (months) or <n>y, "
                         "e.g. 1w for weekly."
+                    ),
+                },
+                "time_zone": {
+                    "type": "string",
+                    "description": (
+                        "With 'every': the user's IANA time zone, e.g. America/Vancouver, so "
+                        "the reminder keeps its local time across daylight saving."
                     ),
                 },
             },
@@ -346,7 +355,7 @@ def _remind_cog(ctx):
     return cog
 
 
-async def set_reminder(ctx, message, time=None, every=None):
+async def set_reminder(ctx, message, time=None, every=None, time_zone=None):
     recur_every = None
     if every:
         recur_every = parse_recurrence(every)
@@ -371,9 +380,15 @@ async def set_reminder(ctx, message, time=None, every=None):
         return {"error": "Reminder message cannot be empty."}
     if remind_at <= now:
         return {"error": "That time is in the past."}
+    if time_zone:
+        try:
+            ZoneInfo(time_zone)
+        except (ZoneInfoNotFoundError, ValueError):
+            return {"error": f"Unknown time zone '{time_zone}'. Use an IANA name like America/Vancouver."}
 
     code = await _remind_cog(ctx).create_reminder(
-        ctx.message.author.id, ctx.message.channel.id, message, remind_at, recur_every
+        ctx.message.author.id, ctx.message.channel.id, message, remind_at, recur_every,
+        time_zone or (reminder_zone(time) if time else None),
     )
     ctx.actions.append(f"set reminder `{code}` {discord_timestamp(remind_at)}: {message}")
     result = {
