@@ -20,32 +20,31 @@ def discord_msg(content="hello", guild=True, bot=False):
 
 
 def test_should_queue():
-    assert should_queue(discord_msg("ben is going to japan")) is True
+    assert should_queue(discord_msg("milo is going to the moon")) is True
     assert should_queue(discord_msg("hi", guild=False)) is False
     assert should_queue(discord_msg("hi", bot=True)) is False
     assert should_queue(discord_msg("!weather tokyo")) is False
     assert should_queue(discord_msg("   ")) is False
-    # thread messages have a guild like any channel message
     assert should_queue(discord_msg("paruru, hi")) is True
 
 
 def test_member_name_map():
     guild = NS(members=[
-        NS(id=200, display_name="Benjamin", nick="ben", name="benj_99", global_name=None, bot=False),
-        NS(id=300, display_name="cheung", nick=None, name="cheung", global_name="Cheung", bot=False),
+        NS(id=200, display_name="Milton", nick="milo", name="milo_99", global_name=None, bot=False),
+        NS(id=300, display_name="tess", nick=None, name="tess", global_name="Tess", bot=False),
         NS(id=999, display_name="SomeBot", nick=None, name="somebot", global_name=None, bot=True),
     ])
     names = member_name_map(guild)
-    assert names == {"benjamin": 200, "ben": 200, "benj_99": 200, "cheung": 300}
+    assert names == {"milton": 200, "milo": 200, "milo_99": 200, "tess": 300}
 
 
 def test_member_name_map_shared_name_is_ambiguous():
     guild = NS(members=[
-        NS(id=200, display_name="ben", nick=None, name="ben_a", global_name=None, bot=False),
-        NS(id=300, display_name="Ben", nick=None, name="ben_b", global_name=None, bot=False),
+        NS(id=200, display_name="milo", nick=None, name="milo_a", global_name=None, bot=False),
+        NS(id=300, display_name="Milo", nick=None, name="milo_b", global_name=None, bot=False),
     ])
     names = member_name_map(guild)
-    assert names["ben"] is None and names["ben_a"] == 200 and names["ben_b"] == 300
+    assert names["milo"] is None and names["milo_a"] == 200 and names["milo_b"] == 300
 
 
 class FakeMessageRef:
@@ -64,7 +63,7 @@ def make_guild(reactions):
 def queue_messages(cog, count):
     for i in range(1, count + 1):
         cog.queue.add(QueuedMessage(
-            id=i, channel_id=10, guild_id=1, author_id=100, author_label="anto",
+            id=i, channel_id=10, guild_id=1, author_id=100, author_label="rory",
             content=f"message {i}", mention_ids=[], reply_to_author_id=None,
             created_at=datetime.now(timezone.utc),
         ))
@@ -113,7 +112,7 @@ def test_process_guild_saves_without_reacting(monkeypatch):
     assert reactions == []
     assert len(store.facts()) == 1
     assert not cog.queue.is_pending(3)
-    assert cog.queue.is_pending(4)  # held back
+    assert cog.queue.is_pending(4)
 
 
 def test_process_guild_failure_keeps_pending(monkeypatch):
@@ -144,7 +143,7 @@ def test_on_ready_waits_for_schema(monkeypatch):
     async def scenario():
         task = asyncio.create_task(cog.on_ready())
         await asyncio.sleep(0.05)
-        assert calls == []  # pool exists but tables aren't created yet
+        assert calls == []
         db.schema_ready.set()
         await task
 
@@ -166,19 +165,19 @@ def test_mention_names():
     from cogs.memories import _mention_names
 
     message = NS(mentions=[
-        NS(id=200, display_name="Benjamin", name="benj_99", bot=False),
+        NS(id=200, display_name="Milton", name="milo_99", bot=False),
         NS(id=999, display_name="paruru", name="paruru", bot=True),
     ])
-    assert _mention_names(message) == {"benjamin": 200, "benj_99": 200}
+    assert _mention_names(message) == {"milton": 200, "milo_99": 200}
 
 
 def test_is_direct():
     from cogs.memories import is_direct
 
-    assert is_direct("paruru, ben is the chairman") is True
+    assert is_direct("paruru, milo is the llama keeper") is True
     assert is_direct("  Paruru, hi") is True
     assert is_direct("paruru is cool") is False
-    assert is_direct("ben is the chairman") is False
+    assert is_direct("milo is the llama keeper") is False
 
 
 def test_direct_statement_processed_on_its_own_call(monkeypatch):
@@ -191,9 +190,9 @@ def test_direct_statement_processed_on_its_own_call(monkeypatch):
     monkeypatch.setattr(memories_mod, "extract_ops", spy_extract)
     cog = MemoriesCog(bot=NS(), store=FakeStore())
     message = NS(
-        id=1, content="paruru, ben is the global chairman of cover corp",
-        clean_content="paruru, ben is the global chairman of cover corp",
-        guild=NS(id=1), author=NS(id=100, bot=False, display_name="anto"),
+        id=1, content="paruru, milo is the keeper of the royal llamas",
+        clean_content="paruru, milo is the keeper of the royal llamas",
+        guild=NS(id=1), author=NS(id=100, bot=False, display_name="rory"),
         channel=NS(id=10), mentions=[], reference=None,
         created_at=datetime.now(timezone.utc),
     )
@@ -230,14 +229,38 @@ def test_few_block_emojis_still_queued():
 
 def test_describe_op_names_what_each_op_does():
     describe = memories_mod.describe_op
-    assert describe(Op(op="add", message_id=5, subject="self", content="likes japanese food")) == (
-        "add self 'likes japanese food' (msg 5)"
+    assert describe(Op(op="add", message_id=5, subject="self", content="likes marzipan")) == (
+        "add self 'likes marzipan' (msg 5)"
     )
-    assert describe(Op(op="add", message_id=5, subject="name", name="ben", content="is a goat", joke=True)) == (
-        "add name ben 'is a goat' joke (msg 5)"
+    assert describe(Op(op="add", message_id=5, subject="name", name="milo", content="is a wizard", joke=True)) == (
+        "add name milo 'is a wizard' joke (msg 5)"
     )
-    assert describe(Op(op="update", message_id=6, memory_id=12, content="lives in osaka")) == (
-        "update #12 'lives in osaka' (msg 6)"
+    assert describe(Op(op="update", message_id=6, memory_id=12, content="lives in atlantis")) == (
+        "update #12 'lives in atlantis' (msg 6)"
     )
     assert describe(Op(op="forget", message_id=7, memory_id=12)) == "forget #12 (msg 7)"
-    assert describe(Op(op="link", message_id=8, name="ben", user_id=111)) == "link ben -> 111 (msg 8)"
+    assert describe(Op(op="link", message_id=8, name="milo", user_id=111)) == "link milo -> 111 (msg 8)"
+
+
+def queued(content, author_id=100):
+    return QueuedMessage(id=1, channel_id=10, guild_id=1, author_id=author_id, author_label="x",
+                         content=content, mention_ids=[], reply_to_author_id=None,
+                         created_at=datetime.now(timezone.utc))
+
+
+def test_relevant_memories_include_a_named_members_account():
+    store = FakeStore()
+    on_account = asyncio.run(store.add_memory(1, 300, None, "fact", "plays checkers", False, 300, None))
+    under_name = asyncio.run(store.add_memory(1, None, "fern", "fact", "bought a kazoo", False, 100, None))
+    cog = MemoriesCog(bot=NS(), store=store)
+    rows = asyncio.run(cog._relevant_memories(1, [queued("fern is knitting again")], {"fern": 300}, {}))
+    assert {r["id"] for r in rows} == {on_account, under_name}
+
+
+def test_relevant_memories_skip_ambiguous_member_names():
+    store = FakeStore()
+    asyncio.run(store.add_memory(1, 300, None, "fact", "plays checkers", False, 300, None))
+    under_name = asyncio.run(store.add_memory(1, None, "milo", "fact", "likes tea", False, 100, None))
+    cog = MemoriesCog(bot=NS(), store=store)
+    rows = asyncio.run(cog._relevant_memories(1, [queued("milo said hi")], {"milo": None}, {}))
+    assert {r["id"] for r in rows} == {under_name}

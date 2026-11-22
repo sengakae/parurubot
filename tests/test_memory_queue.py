@@ -9,7 +9,7 @@ def msg(message_id, channel_id=10, guild_id=1, content=None):
         channel_id=channel_id,
         guild_id=guild_id,
         author_id=100,
-        author_label="anto",
+        author_label="rory",
         content=content or f"message {message_id}",
         mention_ids=[],
         reply_to_author_id=None,
@@ -103,7 +103,7 @@ def test_processed_not_pending():
 def test_channels_with_pending():
     q = PendingQueue()
     fill(q, range(1, 11), channel_id=10, guild_id=1)
-    fill(q, range(11, 14), channel_id=20, guild_id=1)  # only holdback, no batch
+    fill(q, range(11, 14), channel_id=20, guild_id=1)
     fill(q, range(14, 24), channel_id=30, guild_id=2)
     assert q.channels_with_pending(1) == [10]
     assert q.channels_with_pending(2) == [30]
@@ -111,7 +111,7 @@ def test_channels_with_pending():
 
 def test_direct_message_skips_holdback():
     q = PendingQueue()
-    m = msg(1, content="paruru, ben is the chairman")
+    m = msg(1, content="paruru, milo is the llama keeper")
     m.direct = True
     q.add(m)
     _, batch = q.take_batch(10)
@@ -122,9 +122,9 @@ def test_direct_message_skips_holdback():
 def test_direct_message_pulls_earlier_messages_in():
     q = PendingQueue()
     fill(q, [1])
-    direct = msg(2, content="paruru, i'm moving to osaka")
+    direct = msg(2, content="paruru, i'm moving to atlantis")
     direct.direct = True
     q.add(direct)
     fill(q, [3, 4])
     _, batch = q.take_batch(10)
-    assert ids(batch) == [1, 2]  # 3 and 4 still wait for replies
+    assert ids(batch) == [1, 2]

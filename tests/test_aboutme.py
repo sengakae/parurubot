@@ -23,8 +23,8 @@ def test_page_slice():
 
 
 def test_format_memory_line_name_and_joke():
-    assert format_memory_line(1, name_row(1, "ben")) == "1. goes by ben"
-    assert format_memory_line(2, fact(2, "global chairman of kpmg", joke=True)) == "2. global chairman of kpmg"
+    assert format_memory_line(1, name_row(1, "milo")) == "1. goes by milo"
+    assert format_memory_line(2, fact(2, "keeper of the royal llamas", joke=True)) == "2. keeper of the royal llamas"
 
 
 def test_select_label_truncates():
@@ -33,22 +33,22 @@ def test_select_label_truncates():
 
 
 def test_locked_name_not_removable():
-    items = [name_row(1, "sengakae"), name_row(2, "seng"), fact(3)]
+    items = [name_row(1, "quinn"), name_row(2, "quin"), fact(3)]
     options = remove_options(items, 0)
     assert [memory_id for memory_id, _ in options] == [2, 3]
-    assert options[0][1] == "2. goes by seng"
+    assert options[0][1] == "2. goes by quin"
 
 
 def test_embed_numbering_and_footer():
     memories = [fact(i) for i in range(30)]
-    embed = build_aboutme_embed("anto", memories, 1)
-    assert embed.title == "what i know about anto"
+    embed = build_aboutme_embed("rory", memories, 1)
+    assert embed.title == "what i know about rory"
     assert embed.description.startswith("26. fact 25")
     assert embed.footer.text == "30 memories · page 2/2"
 
 
 def test_embed_empty():
-    embed = build_aboutme_embed("anto", [], 0)
+    embed = build_aboutme_embed("rory", [], 0)
     assert embed.description == "i don't know anything about you yet"
 
 
@@ -60,7 +60,7 @@ def test_view_components_layout_b():
     from tests.fake_store import FakeStore
 
     async def build(memories):
-        view = AboutMeView(NS(id=200, display_name="anto"), 1, memories, FakeStore())
+        view = AboutMeView(NS(id=200, display_name="rory"), 1, memories, FakeStore())
         return [type(c).__name__ for c in view.children]
 
     assert asyncio.run(build([fact(i) for i in range(30)])) == [
@@ -68,7 +68,7 @@ def test_view_components_layout_b():
     ]
     assert asyncio.run(build([fact(1)])) == ["RemoveMemorySelect", "AddMemoryButton"]
     assert asyncio.run(build([])) == ["AddMemoryButton"]
-    assert asyncio.run(build([name_row(1, "sengakae")])) == ["AddMemoryButton"]
+    assert asyncio.run(build([name_row(1, "quinn")])) == ["AddMemoryButton"]
 
 
 def test_view_timeout_disables_components():
@@ -85,7 +85,7 @@ def test_view_timeout_disables_components():
             edits.append(kwargs)
 
     async def scenario():
-        view = AboutMeView(NS(id=200, display_name="anto"), 1, [fact(1)], FakeStore())
+        view = AboutMeView(NS(id=200, display_name="rory"), 1, [fact(1)], FakeStore())
         view.message = FakeMessage()
         await view.on_timeout()
         return view
